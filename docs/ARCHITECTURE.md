@@ -95,19 +95,66 @@ This gives us the "pro UX" pattern (like OAuth's sign-in popup) without needing 
 
 ## Provider endpoints
 
-**Status: to be confirmed in the initial spike.**
+Neither Anthropic nor OpenAI document a public API for subscription-tier usage quotas, but both web UIs clearly display 5-hour and weekly usage, so internal endpoints exist. We discovered them by exporting HAR files from a real browser on the provider's usage page (see `spike/`).
 
-Neither Anthropic nor OpenAI document a public API for subscription-tier usage quotas. Their web settings pages clearly display 5-hour and weekly usage, so internal endpoints exist. The first implementation task is a time-boxed spike to:
+### Claude (confirmed 2026-04-04)
 
-1. Log into each service in a browser with devtools open.
-2. Navigate to the usage/settings view.
-3. Identify the XHR/fetch calls that populate the usage display.
-4. Confirm the responses contain the fields we need.
-5. Document the endpoints here.
+**Endpoint:**
 
-If no suitable endpoint exists for one provider, fall back options:
-- DOM scraping via a headless browser (heavier, more fragile).
-- Token-counting the local CLI state (device-level only, not account-level — last resort).
+```
+GET https://claude.ai/api/organizations/<org-id>/usage
+```
+
+`<org-id>` is a UUID that must be discovered once per account, likely from `/api/bootstrap/<org-id>/app_start` or a `/api/organizations` list endpoint (to be finalized during implementation).
+
+**Response (v1 shape):**
+
+```jsonc
+{
+  "five_hour": {
+    "utilization": <number 0..100>,   // percent
+    "resets_at":   "<ISO datetime>"
+  },
+  "seven_day": {
+    "utilization": <number 0..100>,
+    "resets_at":   "<ISO datetime>"
+  },
+  "seven_day_opus":       null | { utilization, resets_at },  // per-model weekly cap, plan-dependent
+  "seven_day_sonnet":     null | { utilization, resets_at },
+  "seven_day_oauth_apps": null | {...},
+  "seven_day_cowork":     null | {...},
+  "iguana_necktie":       null | {...},   // internal codename, ignore
+  "extra_usage": {
+    "is_enabled":    <boolean>,
+    "monthly_limit": <number>,            // overage credit limit (separate billing concept)
+    "used_credits":  <number>,
+    "utilization":   null | <number>
+  }
+}
+```
+
+`utilization` is a percent (0..100), NOT a fraction — confirmed against on-screen values during discovery.
+
+**For v0.1 the app consumes only `five_hour.utilization` and `seven_day.utilization`.** The per-model weekly caps (`seven_day_opus`, `seven_day_sonnet`) are plan-dependent and may be surfaced later as a "details" view.
+
+**Required request headers (from HAR):**
+- Session cookies (standard)
+- `anthropic-client-platform: web_claude_ai`
+- `anthropic-client-version: <version-string>`
+- `anthropic-device-id: <uuid>`         — we generate once per install, persist in Keychain
+- `anthropic-anonymous-id: <uuid>`      — same
+- `content-type: application/json`
+
+`x-datadog-*` headers in the real browser are RUM telemetry and are not required.
+
+### ChatGPT Codex
+
+**Status: pending spike.** Same HAR-export approach.
+
+### Fallback
+If a provider's endpoint becomes unreachable from outside the real web UI (e.g., bot-detection on the endpoint itself), fall back options:
+- DOM scraping via an embedded webview (heavier, more fragile).
+- Parsing local CLI state — device-level only, not account-level, last resort.
 
 ## Threat model
 
