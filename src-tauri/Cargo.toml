@@ -1,0 +1,29 @@
+[package]
+name = "usage-meter"
+version = "0.1.0"
+description = "Floating desktop widget tracking Claude and ChatGPT Codex subscription usage."
+authors = ["Chace Raiter"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/chaceraiter/usage-meter"
+
+[lib]
+# The `_lib` suffix is required to keep the lib name unique on Windows.
+# See https://github.com/rust-lang/cargo/issues/8519
+name = "usage_meter_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
