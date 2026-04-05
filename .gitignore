@@ -21,7 +21,9 @@ Thumbs.db
 target/
 **/*.rs.bk
 src-tauri/target/
-src-tauri/Cargo.lock
+# NOTE: src-tauri/Cargo.lock IS committed — usage-meter ships as a
+# binary, so a locked dependency graph is what users actually build
+# against and what dependabot needs to update.
 
 # Node / frontend
 node_modules/
