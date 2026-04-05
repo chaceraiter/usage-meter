@@ -56,9 +56,36 @@ This document describes the technical design of usage-meter, including the secur
 ### Rust core (`src-tauri/`)
 
 - **`scheduler`** — tokio task that polls each provider on a configurable interval.
-- **`scrapers/`** — one module per provider (`claude.rs`, `chatgpt.rs`). Each exposes a trait like `UsageSource` that returns a normalized `UsageSnapshot { five_hour_pct, weekly_pct, ... }`.
+- **`scrapers/`** — one module per provider (`claude.rs`, `chatgpt.rs`). Each exposes a trait like `UsageSource` that returns a normalized `UsageSnapshot`.
 - **`keychain`** — thin wrapper around the [`keyring`](https://crates.io/crates/keyring) crate. The only code path that touches stored credentials.
 - **`ipc`** — Tauri commands exposed to the frontend (`get_latest_snapshot`, `set_cookie`, `clear_cookies`, etc.).
+
+#### Normalized `UsageSnapshot`
+
+Both providers expose reset timestamps alongside percentages. **The internal snapshot always retains both**, even if the v0.1 UI only displays the percent. This keeps downstream features — "resets in 2h 14m" labels, smart polling (don't re-poll during a dead window), predictive "you'll hit the limit in X hours" — unblocked without a schema migration.
+
+```rust
+struct UsageWindow {
+    used_percent: f32,           // 0.0 ..= 100.0
+    resets_at:    DateTime<Utc>, // absolute UTC instant
+    window_seconds: u32,         // e.g. 18_000 for 5h, 604_800 for 7d
+}
+
+struct UsageSnapshot {
+    five_hour:   Option<UsageWindow>,
+    weekly:      Option<UsageWindow>,
+    fetched_at:  DateTime<Utc>,
+    // provider-specific extras (e.g. per-model weekly caps, credit
+    // balance, code-review sub-limits) live under an enum variant
+    // and are exposed to the frontend as read-only "details" blobs.
+    extras:      ProviderExtras,
+}
+```
+
+Provider scrapers convert their raw responses into this shape:
+
+- **Claude**: `resets_at` is already ISO-8601; parse directly. `window_seconds` is hardcoded by key name (`five_hour` = 18 000, `seven_day` = 604 800) since Anthropic doesn't expose it in the response.
+- **ChatGPT Codex**: `reset_at` is a Unix epoch (seconds); convert via `DateTime::from_timestamp`. `limit_window_seconds` is provided — use it to classify `primary_window`/`secondary_window` into `five_hour` vs `weekly` rather than assuming ordering.
 
 ### Frontend (`src/`)
 
