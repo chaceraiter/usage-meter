@@ -1,0 +1,14 @@
+{
+  "name": "usage-meter-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway tooling for discovering provider usage endpoints. Not part of the shipped app.",
+  "scripts": {
+    "capture:claude": "node capture.mjs claude",
+    "capture:chatgpt": "node capture.mjs chatgpt"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}
