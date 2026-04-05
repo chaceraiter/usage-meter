@@ -21,6 +21,11 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# UTC timestamps on the normalized snapshot and on provider responses.
+# `serde` feature gives us `DateTime<Utc>` (de)serialization as RFC 3339.
+# Default features are off to drop `iana-time-zone` and `js-sys`, which
+# we don't need for a desktop app that only works in UTC internally.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 
 # OS credential store. `apple-native` uses the macOS Security framework,
 # `windows-native` uses the Windows Credential Manager, `linux-native` uses

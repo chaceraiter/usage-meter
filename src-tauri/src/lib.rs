@@ -5,6 +5,8 @@
 //! placeholder `app_info` command is the minimum surface needed to
 //! prove IPC works end-to-end.
 
+pub mod model;
+pub mod providers;
 pub mod secrets;
 
 use serde::Serialize;
