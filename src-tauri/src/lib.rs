@@ -1,9 +1,11 @@
 //! usage-meter — Tauri application entry point.
 //!
-//! Current state: scaffolding only. Real provider scrapers, keychain
-//! integration, and the scheduler will land in subsequent PRs. The
-//! placeholder `app_version` command is the minimum surface needed to
+//! Current state: scaffolding plus a secret-store abstraction. Real
+//! provider scrapers and the scheduler land in subsequent PRs. The
+//! placeholder `app_info` command is the minimum surface needed to
 //! prove IPC works end-to-end.
+
+pub mod secrets;
 
 use serde::Serialize;
 
