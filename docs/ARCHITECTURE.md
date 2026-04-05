@@ -68,10 +68,27 @@ This document describes the technical design of usage-meter, including the secur
   - **Tray menu**: shows summary numbers in the dropdown.
 - Settings panel for cookie capture, poll interval, theme.
 
+## Authentication UX (embedded webview sign-in)
+
+Neither Anthropic nor OpenAI offer OAuth for subscription-tier usage data — their OAuth flows cover only the pay-per-token API, which does not expose the 5-hour / weekly quotas we need. So we can't use the standard "open system browser, redirect to localhost callback" pattern.
+
+Instead, usage-meter uses an **embedded webview sign-in** flow, which is what most desktop apps that wrap web services do:
+
+1. User clicks "Connect Claude account" (or ChatGPT).
+2. The app opens a secondary Tauri window containing a webview pointed at the provider's real login page (`claude.ai/login` or `chatgpt.com`).
+3. The user logs in normally inside that window. It looks and feels exactly like the real site because it *is* the real site — same HTML, same JS, same 2FA flow, same everything.
+4. After successful login, the Rust core reads the resulting session cookies from the webview's cookie store (via Tauri's cookie APIs — WKWebView on macOS, WebView2 on Windows).
+5. The relevant cookies are moved into the macOS Keychain. The webview's cookie store is then cleared, and the window is closed.
+6. The scraper uses the stored cookies for polling.
+
+This gives us the "pro UX" pattern (like OAuth's sign-in popup) without needing provider OAuth support. It's also safer than asking users to paste cookies from devtools.
+
+**Fallback for v0.x**: a manual "paste Cookie header" input, for debugging and for platforms where the webview cookie APIs misbehave.
+
 ## Data flow
 
-1. User captures session cookies via the settings UI (one-time per service, or when they expire).
-2. Cookies are written to the OS keychain via the Rust core.
+1. User clicks "Connect" for a provider; embedded webview sign-in flow captures session cookies (see above).
+2. Cookies are written to the OS keychain via the Rust core. Webview cookie store is cleared.
 3. Scheduler fires every N seconds; scrapers read cookies from keychain, hit the provider's usage endpoint, parse the response.
 4. Normalized `UsageSnapshot` is cached in memory and pushed to the frontend via Tauri event.
 5. Frontend renders; no disk writes, no network calls.
@@ -127,5 +144,7 @@ If no suitable endpoint exists for one provider, fall back options:
 ## Open questions
 
 - Framework for the frontend? (SolidJS, Svelte, or vanilla.)
+- Which specific cookies do we need to harvest from the webview store for each provider? (Determined by the endpoint spike.)
+- Will the embedded webview trip bot-detection on the providers' login pages? (To be validated — user-agent and feature set should match a real browser, so probably fine.)
 - Should snapshots be persisted to a local SQLite for simple historical charts, even in v1?
 - How aggressively to back off on 429 — provider-specific tuning.

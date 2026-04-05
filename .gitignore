@@ -45,3 +45,9 @@ coverage/
 # Tauri build artifacts
 src-tauri/gen/
 src-tauri/WixTools/
+
+# Spike outputs (may contain sensitive network data / cookies)
+spike/output/
+spike/node_modules/
+spike/pnpm-lock.yaml
+spike/package-lock.json
