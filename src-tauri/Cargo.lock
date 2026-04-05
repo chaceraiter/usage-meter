@@ -3980,6 +3980,7 @@ dependencies = [
 name = "usage-meter"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "keyring",
  "serde",
  "serde_json",
