@@ -147,9 +147,64 @@ GET https://claude.ai/api/organizations/<org-id>/usage
 
 `x-datadog-*` headers in the real browser are RUM telemetry and are not required.
 
-### ChatGPT Codex
+### ChatGPT Codex (confirmed 2026-04-04)
 
-**Status: pending spike.** Same HAR-export approach.
+**Endpoint:**
+
+```
+GET https://chatgpt.com/backend-api/wham/usage
+```
+
+`wham` appears to be OpenAI's internal codename for the Codex backend. The endpoint does not require any path parameter — authentication alone is enough to resolve the current account.
+
+**Response (v1 shape):**
+
+```jsonc
+{
+  "user_id":    "<string>",
+  "account_id": "<string>",
+  "email":      "<string>",
+  "plan_type":  "<string>",              // "plus", "pro", etc.
+
+  "rate_limit": {
+    "allowed":       <boolean>,
+    "limit_reached": <boolean>,
+    "primary_window": {
+      "used_percent":         <number 0..100>,
+      "limit_window_seconds": <number>,   // window size in seconds (e.g. 18000 = 5h, 604800 = 7d)
+      "reset_after_seconds":  <number>,
+      "reset_at":             <unix epoch seconds>
+    },
+    "secondary_window": { ...same shape... }
+  },
+
+  "code_review_rate_limit": { ...same shape... },   // per-feature limit
+  "additional_rate_limits": null | {...},
+
+  "credits": {
+    "has_credits":           <boolean>,
+    "unlimited":             <boolean>,
+    "balance":               "<string>",
+    "approx_local_messages": [<number>, <number>],
+    "approx_cloud_messages": [<number>, <number>]
+  },
+  "spend_control": { "reached": <boolean> },
+  "promo":         null | {...}
+}
+```
+
+**For v0.1 the app consumes `rate_limit.primary_window.used_percent` and `rate_limit.secondary_window.used_percent`.** We identify which window is the 5-hour vs the weekly cap by reading `limit_window_seconds` rather than assuming ordering — this is more robust if OpenAI reshuffles.
+
+**Required request headers (from HAR):**
+- Session cookies (standard)
+- `oai-client-version: <version-string>`
+- `oai-client-build-number: <number>`
+- `oai-device-id: <uuid>`      — we generate once per install, persist in Keychain
+- `oai-session-id: <uuid>`     — same
+- `oai-language: en-US`        — harmless, recommended
+- `accept: */*`
+
+`x-openai-target-path` / `x-openai-target-route` headers in the real browser appear to be set by an edge proxy and are not required from clients.
 
 ### Fallback
 If a provider's endpoint becomes unreachable from outside the real web UI (e.g., bot-detection on the endpoint itself), fall back options:
