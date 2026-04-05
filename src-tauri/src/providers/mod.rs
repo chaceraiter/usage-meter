@@ -15,4 +15,5 @@
 //! can be unit-tested hermetically and the fetcher can be tested
 //! against a `wiremock` stub, without either side blocking the other.
 
+pub mod chatgpt;
 pub mod claude;
