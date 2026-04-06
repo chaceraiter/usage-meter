@@ -1,16 +1,14 @@
-//! Claude usage parser.
+//! Claude usage scraper.
 //!
-//! Consumes the JSON payload returned by
-//! `GET https://claude.ai/api/organizations/<org-id>/usage` (discovered
-//! in the endpoint spike, see `docs/ARCHITECTURE.md`) and maps it into
-//! the normalized [`UsageSnapshot`] shape.
+//! Owns the full lifecycle for the Claude provider:
 //!
-//! **This module is deliberately network-free.** The caller is
-//! expected to perform the HTTPS request, hand the response body to
-//! [`parse_raw`], and then call [`to_snapshot`] on the result. Keeping
-//! fetching and parsing as separate functions lets the mapper be
-//! unit-tested against a static HAR fixture, and lets the fetcher be
-//! tested separately against a `wiremock` stub in a follow-up PR.
+//! 1. **Parsing** — [`parse_raw`] + [`to_snapshot`] convert a raw JSON
+//!    body into the normalized [`UsageSnapshot`]. Pure functions, tested
+//!    against a static HAR-derived fixture.
+//! 2. **Fetching** — [`fetch_usage`] performs the HTTPS request against
+//!    `GET https://claude.ai/api/organizations/<org-id>/usage`, applies
+//!    the required headers, checks the status, parses the body, and
+//!    returns a snapshot. Tested against a `wiremock` stub.
 //!
 //! ## Field selection
 //!
@@ -30,12 +28,14 @@
 //! bumping a version header.
 
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::model::{
     ProviderExtras, UsageSnapshot, UsageWindow, FIVE_HOUR_SECONDS, SEVEN_DAY_SECONDS,
 };
+use crate::providers::FetchError;
 
 /// Errors produced by the Claude parser.
 ///
@@ -140,6 +140,74 @@ fn window_from(raw: &ClaudeRawWindow, window_seconds: u32) -> Option<UsageWindow
 }
 
 // ---------------------------------------------------------------------------
+// Auth + fetch
+// ---------------------------------------------------------------------------
+
+/// Credentials and header values required to call the Claude usage
+/// endpoint. The auth UX (embedded webview or cookie paste) is
+/// responsible for populating this struct and persisting it in the
+/// keychain; the fetcher just consumes it.
+pub struct ClaudeAuth {
+    /// Organization UUID, discovered from `/api/organizations` or the
+    /// bootstrap endpoint during sign-in.
+    pub org_id: String,
+
+    /// Full `Cookie` header value (e.g. `sessionKey=sk-ant-...`).
+    pub cookie: String,
+
+    /// `anthropic-device-id` header (UUID, generated once per install).
+    pub device_id: String,
+
+    /// `anthropic-anonymous-id` header (UUID, generated once per install).
+    pub anonymous_id: String,
+
+    /// `anthropic-client-version` header. Opaque string matching the
+    /// real web client's current build. Populated during auth capture
+    /// or hardcoded from a recent known-good value.
+    pub client_version: String,
+}
+
+/// Fetches the current usage snapshot from Claude's internal API.
+///
+/// `base_url` is extracted as a parameter so tests can point it at a
+/// `wiremock` server. In production the caller passes
+/// `"https://claude.ai"`.
+pub async fn fetch_usage(
+    client: &Client,
+    base_url: &str,
+    auth: &ClaudeAuth,
+) -> Result<UsageSnapshot, FetchError> {
+    let fetched_at = Utc::now();
+    let url = format!(
+        "{}/api/organizations/{}/usage",
+        base_url.trim_end_matches('/'),
+        auth.org_id
+    );
+
+    let resp = client
+        .get(&url)
+        .header("cookie", &auth.cookie)
+        .header("anthropic-client-platform", "web_claude_ai")
+        .header("anthropic-client-version", &auth.client_version)
+        .header("anthropic-device-id", &auth.device_id)
+        .header("anthropic-anonymous-id", &auth.anonymous_id)
+        .header("content-type", "application/json")
+        .send()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+
+    super::check_status(resp.status())?;
+
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+
+    let raw = parse_raw(&body).map_err(|e| FetchError::Parse(e.to_string()))?;
+    Ok(to_snapshot(&raw, fetched_at))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -147,6 +215,8 @@ fn window_from(raw: &ClaudeRawWindow, window_seconds: u32) -> Option<UsageWindow
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     /// Sanitized copy of a real HAR-captured response body. Contains
     /// only shape and representative values; no account identifiers.
@@ -259,5 +329,116 @@ mod tests {
         let json = serde_json::to_string(&snap).unwrap();
         let back: UsageSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(snap, back);
+    }
+
+    // -------------------------------------------------------------------
+    // Fetch tests (wiremock)
+    // -------------------------------------------------------------------
+
+    fn test_auth(org_id: &str) -> ClaudeAuth {
+        ClaudeAuth {
+            org_id: org_id.to_string(),
+            cookie: "sessionKey=test-session".to_string(),
+            device_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            anonymous_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            client_version: "test-version".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_snapshot_on_200() {
+        let server = MockServer::start().await;
+        let org_id = "test-org-uuid";
+
+        Mock::given(method("GET"))
+            .and(path(format!("/api/organizations/{org_id}/usage")))
+            .and(header("cookie", "sessionKey=test-session"))
+            .and(header("anthropic-client-platform", "web_claude_ai"))
+            .and(header(
+                "anthropic-device-id",
+                "00000000-0000-0000-0000-000000000001",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(FIXTURE, "application/json"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new();
+        let snap = fetch_usage(&client, &server.uri(), &test_auth(org_id))
+            .await
+            .expect("fetch should succeed");
+
+        assert_eq!(snap.five_hour.unwrap().used_percent, 1.0);
+        assert_eq!(snap.weekly.unwrap().used_percent, 32.0);
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_unauthorized_on_401() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth("org"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::Unauthorized { status: 401 }));
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_unauthorized_on_403() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth("org"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::Unauthorized { status: 403 }));
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_rate_limited_on_429() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(429))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth("org"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::RateLimited));
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_server_error_on_500() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth("org"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::ServerError { status: 500 }));
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_parse_error_on_non_json() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not json"))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth("org"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::Parse(_)));
     }
 }

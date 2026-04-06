@@ -26,6 +26,11 @@ thiserror = "2"
 # Default features are off to drop `iana-time-zone` and `js-sys`, which
 # we don't need for a desktop app that only works in UTC internally.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+# HTTP client for provider endpoint scraping. `rustls-tls` avoids
+# linking OpenSSL, which simplifies cross-compilation and removes a
+# class of CVEs we don't want to track. Default features are off to
+# skip the openssl-tls backend and the `multipart` feature we don't need.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 # OS credential store. `apple-native` uses the macOS Security framework,
 # `windows-native` uses the Windows Credential Manager, `linux-native` uses
@@ -39,6 +44,14 @@ keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["linux-native"] }
+
+[dev-dependencies]
+# HTTP mock server for testing provider fetchers without touching real
+# endpoints. Each test spins up its own local server, so tests are
+# hermetic and parallelizable.
+wiremock = "0.6"
+# tokio runtime + macros for #[tokio::test].
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [profile.release]
 panic = "abort"
