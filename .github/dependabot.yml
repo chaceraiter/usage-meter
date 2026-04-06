@@ -1,0 +1,39 @@
+# Automated dependency update configuration.
+#
+# Dependabot opens PRs for outdated deps on a weekly cadence. Each PR
+# runs through the CI workflow before merge, so a breaking upgrade is
+# caught before it lands. The commit-message prefix ensures Dependabot
+# PRs follow the project's Conventional Commits convention.
+
+version: 2
+
+updates:
+  # Rust (Cargo) dependencies — src-tauri/Cargo.lock
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Node/pnpm dependencies — pnpm-lock.yaml
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+
+  # GitHub Actions — .github/workflows/*.yml
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
