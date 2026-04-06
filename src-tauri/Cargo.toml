@@ -31,6 +31,13 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # class of CVEs we don't want to track. Default features are off to
 # skip the openssl-tls backend and the `multipart` feature we don't need.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# Explicit tokio dep for `tokio::time` in the scheduler. Tauri already
+# pulls in tokio but may not enable the `time` feature. Cargo merges
+# features across the dependency graph, so this is additive.
+tokio = { version = "1", features = ["time"] }
+# Structured logging — the scheduler logs fetch failures so the user
+# can diagnose issues from `pnpm tauri dev` console output.
+log = "0.4"
 
 # OS credential store. `apple-native` uses the macOS Security framework,
 # `windows-native` uses the Windows Credential Manager, `linux-native` uses

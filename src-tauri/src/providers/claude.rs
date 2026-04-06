@@ -147,6 +147,7 @@ fn window_from(raw: &ClaudeRawWindow, window_seconds: u32) -> Option<UsageWindow
 /// endpoint. The auth UX (embedded webview or cookie paste) is
 /// responsible for populating this struct and persisting it in the
 /// keychain; the fetcher just consumes it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeAuth {
     /// Organization UUID, discovered from `/api/organizations` or the
     /// bootstrap endpoint during sign-in.
