@@ -1,12 +1,14 @@
-//! ChatGPT Codex usage parser.
+//! ChatGPT Codex usage scraper.
 //!
-//! Consumes the JSON payload returned by
-//! `GET https://chatgpt.com/backend-api/wham/usage` (discovered in the
-//! endpoint spike; see `docs/ARCHITECTURE.md`) and maps it into the
-//! normalized [`UsageSnapshot`] shape. Like the Claude parser, this
-//! module is deliberately network-free — parsing and fetching are
-//! separate functions so the mapper stays hermetically testable
-//! against a sanitized fixture.
+//! Owns the full lifecycle for the ChatGPT Codex provider:
+//!
+//! 1. **Parsing** — [`parse_raw`] + [`to_snapshot`] convert a raw JSON
+//!    body into the normalized [`UsageSnapshot`]. Pure functions, tested
+//!    against a static fixture.
+//! 2. **Fetching** — [`fetch_usage`] performs the HTTPS request against
+//!    `GET https://chatgpt.com/backend-api/wham/usage`, applies the
+//!    required headers, checks the status, parses the body, and returns
+//!    a snapshot. Tested against a `wiremock` stub.
 //!
 //! ## Window classification
 //!
@@ -38,12 +40,14 @@
 //! we actually intend to read.
 
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::model::{
     ProviderExtras, UsageSnapshot, UsageWindow, FIVE_HOUR_SECONDS, SEVEN_DAY_SECONDS,
 };
+use crate::providers::FetchError;
 
 /// Errors produced by the ChatGPT Codex parser.
 #[derive(Debug, Error)]
@@ -186,6 +190,68 @@ fn classify(raw: &ChatGptRawWindow) -> Option<(WindowKind, UsageWindow)> {
 }
 
 // ---------------------------------------------------------------------------
+// Auth + fetch
+// ---------------------------------------------------------------------------
+
+/// Credentials and header values required to call the ChatGPT usage
+/// endpoint. Like [`super::claude::ClaudeAuth`], the auth UX populates
+/// this and the fetcher consumes it.
+pub struct ChatGptAuth {
+    /// Full `Cookie` header value.
+    pub cookie: String,
+
+    /// `oai-device-id` header (UUID, generated once per install).
+    pub device_id: String,
+
+    /// `oai-session-id` header (UUID, generated once per install).
+    pub session_id: String,
+
+    /// `oai-client-version` header. Opaque version string matching the
+    /// real web client's current build.
+    pub client_version: String,
+
+    /// `oai-client-build-number` header.
+    pub build_number: String,
+}
+
+/// Fetches the current usage snapshot from ChatGPT's internal API.
+///
+/// `base_url` is extracted as a parameter so tests can point it at a
+/// `wiremock` server. In production the caller passes
+/// `"https://chatgpt.com"`.
+pub async fn fetch_usage(
+    client: &Client,
+    base_url: &str,
+    auth: &ChatGptAuth,
+) -> Result<UsageSnapshot, FetchError> {
+    let fetched_at = Utc::now();
+    let url = format!("{}/backend-api/wham/usage", base_url.trim_end_matches('/'));
+
+    let resp = client
+        .get(&url)
+        .header("cookie", &auth.cookie)
+        .header("oai-client-version", &auth.client_version)
+        .header("oai-client-build-number", &auth.build_number)
+        .header("oai-device-id", &auth.device_id)
+        .header("oai-session-id", &auth.session_id)
+        .header("oai-language", "en-US")
+        .header("accept", "*/*")
+        .send()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+
+    super::check_status(resp.status())?;
+
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+
+    let raw = parse_raw(&body).map_err(|e| FetchError::Parse(e.to_string()))?;
+    Ok(to_snapshot(&raw, fetched_at))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -193,6 +259,8 @@ fn classify(raw: &ChatGptRawWindow) -> Option<(WindowKind, UsageWindow)> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     const FIXTURE: &str = include_str!("../../fixtures/chatgpt-usage.json");
 
@@ -367,5 +435,115 @@ mod tests {
         let json = serde_json::to_string(&snap).unwrap();
         let back: UsageSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(snap, back);
+    }
+
+    // -------------------------------------------------------------------
+    // Fetch tests (wiremock)
+    // -------------------------------------------------------------------
+
+    fn test_auth() -> ChatGptAuth {
+        ChatGptAuth {
+            cookie: "session=test-session".to_string(),
+            device_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            session_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            client_version: "test-version".to_string(),
+            build_number: "12345".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_snapshot_on_200() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/backend-api/wham/usage"))
+            .and(header("cookie", "session=test-session"))
+            .and(header(
+                "oai-device-id",
+                "00000000-0000-0000-0000-000000000001",
+            ))
+            .and(header("oai-language", "en-US"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(FIXTURE, "application/json"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new();
+        let snap = fetch_usage(&client, &server.uri(), &test_auth())
+            .await
+            .expect("fetch should succeed");
+
+        assert_eq!(snap.five_hour.unwrap().used_percent, 12.5);
+        assert_eq!(snap.weekly.unwrap().used_percent, 47.0);
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_unauthorized_on_401() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::Unauthorized { status: 401 }));
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_unauthorized_on_403() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::Unauthorized { status: 403 }));
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_rate_limited_on_429() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(429))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::RateLimited));
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_server_error_on_500() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::ServerError { status: 500 }));
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_parse_error_on_non_json() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not json"))
+            .mount(&server)
+            .await;
+
+        let err = fetch_usage(&Client::new(), &server.uri(), &test_auth())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::Parse(_)));
     }
 }
