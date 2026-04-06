@@ -196,6 +196,7 @@ fn classify(raw: &ChatGptRawWindow) -> Option<(WindowKind, UsageWindow)> {
 /// Credentials and header values required to call the ChatGPT usage
 /// endpoint. Like [`super::claude::ClaudeAuth`], the auth UX populates
 /// this and the fetcher consumes it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatGptAuth {
     /// Full `Cookie` header value.
     pub cookie: String,

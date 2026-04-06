@@ -10,8 +10,32 @@
   <body>
     <main class="widget">
       <h1 class="title">usage-meter</h1>
-      <p class="tagline">Claude &amp; ChatGPT Codex subscription usage</p>
-      <p id="status" class="status">loading…</p>
+
+      <section class="provider" id="claude-section">
+        <h2 class="provider-name">Claude</h2>
+        <div class="row">
+          <span class="label">5 hr</span>
+          <span class="value" id="claude-5h">—</span>
+        </div>
+        <div class="row">
+          <span class="label">Weekly</span>
+          <span class="value" id="claude-weekly">—</span>
+        </div>
+      </section>
+
+      <section class="provider" id="chatgpt-section">
+        <h2 class="provider-name">ChatGPT Codex</h2>
+        <div class="row">
+          <span class="label">5 hr</span>
+          <span class="value" id="chatgpt-5h">—</span>
+        </div>
+        <div class="row">
+          <span class="label">Weekly</span>
+          <span class="value" id="chatgpt-weekly">—</span>
+        </div>
+      </section>
+
+      <p id="status" class="status">waiting for data…</p>
     </main>
   </body>
 </html>
