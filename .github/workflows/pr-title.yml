@@ -1,0 +1,45 @@
+# Validates that PR titles follow Conventional Commits.
+#
+# Since we squash-merge, the PR title becomes the commit message on
+# main. Catching a non-conventional title here — instead of during
+# the merge or in a post-hoc changelog scan — saves a revert-and-redo
+# cycle.
+
+name: PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Keep this list in sync with CONTRIBUTING.md § Commit messages.
+          types: |
+            feat
+            fix
+            docs
+            chore
+            refactor
+            test
+            build
+            ci
+            perf
+            style
+            revert
+          # Allow scope in parens: feat(providers), fix(chatgpt), etc.
+          requireScope: false
+          # Enforce lowercase first letter after the colon.
+          subjectPattern: ^[a-z].*$
+          subjectPatternError: >
+            The PR title after the type/scope must start with a lowercase
+            letter. Example: "feat(providers): add ChatGPT parser".

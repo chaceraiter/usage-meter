@@ -229,14 +229,8 @@ mod tests {
         let store = MemoryStore::new();
         store.set("claude.cookies", "a").unwrap();
         store.set("chatgpt.cookies", "b").unwrap();
-        assert_eq!(
-            store.get("claude.cookies").unwrap(),
-            Some("a".to_string())
-        );
-        assert_eq!(
-            store.get("chatgpt.cookies").unwrap(),
-            Some("b".to_string())
-        );
+        assert_eq!(store.get("claude.cookies").unwrap(), Some("a".to_string()));
+        assert_eq!(store.get("chatgpt.cookies").unwrap(), Some("b".to_string()));
     }
 
     /// `SecretStore` must be usable as a trait object, since the

@@ -1,0 +1,93 @@
+# Continuous integration — runs on every push to main and on every PR.
+#
+# Two parallel jobs:
+#   1. rust  — fmt, clippy, tests (macOS, the primary target platform)
+#   2. frontend — tsc type-check + vite production build (ubuntu, fast)
+#
+# macOS is chosen for the Rust job because it is the primary development
+# and release target. Ubuntu / Windows matrix entries can be added later
+# when cross-platform builds become a priority — the effort to install
+# Tauri's native deps (libwebkit2gtk-4.1-dev, etc.) on each OS is its
+# own PR scope. Running clippy + tests on macOS alone still catches the
+# vast majority of issues since none of our code is platform-conditional
+# at the application layer.
+#
+# Supply chain note: third-party actions are pinned to version tags, not
+# SHAs. Dependabot is configured to auto-update them weekly, which is a
+# reasonable balance between freshness and auditability for this threat
+# model. SHA pinning is an upgrade path if the threat model tightens.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-flight runs of the same workflow+ref when a new commit lands.
+# This avoids wasting minutes on stale pushes during rapid iteration.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Rust — formatting, lints, and tests
+  # -----------------------------------------------------------------------
+  rust:
+    name: Rust (fmt · clippy · test)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Caches the target/ and registry to skip full rebuilds on PRs.
+      # Keyed on Cargo.lock so a dependency bump busts the cache.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+  # -----------------------------------------------------------------------
+  # Frontend — TypeScript type-check + Vite production build
+  # -----------------------------------------------------------------------
+  frontend:
+    name: Frontend (tsc · vite build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm build` runs `tsc && vite build`, so this single step
+      # covers both type-checking and the production bundle.
+      - name: Build
+        run: pnpm build
