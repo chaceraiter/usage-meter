@@ -168,6 +168,44 @@ pub struct ClaudeAuth {
     pub client_version: String,
 }
 
+/// Discovers the user's organization UUID by calling
+/// `GET <base_url>/api/organizations` with the session cookie.
+/// Returns the first org's UUID — most accounts belong to exactly one.
+pub async fn discover_org_id(
+    client: &Client,
+    base_url: &str,
+    cookie: &str,
+) -> Result<String, FetchError> {
+    #[derive(Deserialize)]
+    struct OrgEntry {
+        uuid: String,
+    }
+
+    let url = format!("{}/api/organizations", base_url.trim_end_matches('/'));
+
+    let resp = client
+        .get(&url)
+        .header("cookie", cookie)
+        .header("content-type", "application/json")
+        .send()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+
+    super::check_status(resp.status())?;
+
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+
+    let orgs: Vec<OrgEntry> =
+        serde_json::from_str(&body).map_err(|e| FetchError::Parse(e.to_string()))?;
+
+    orgs.first()
+        .map(|o| o.uuid.clone())
+        .ok_or_else(|| FetchError::Parse("no organizations found in response".into()))
+}
+
 /// Fetches the current usage snapshot from Claude's internal API.
 ///
 /// `base_url` is extracted as a parameter so tests can point it at a
@@ -330,6 +368,63 @@ mod tests {
         let json = serde_json::to_string(&snap).unwrap();
         let back: UsageSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(snap, back);
+    }
+
+    // -------------------------------------------------------------------
+    // Org discovery tests (wiremock)
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn discover_org_id_returns_first_uuid() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/organizations"))
+            .and(header("cookie", "sessionKey=test-session"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"uuid": "org-uuid-1", "name": "Personal"},
+                {"uuid": "org-uuid-2", "name": "Team"},
+            ])))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new();
+        let org_id = discover_org_id(&client, &server.uri(), "sessionKey=test-session")
+            .await
+            .expect("should discover org");
+        assert_eq!(org_id, "org-uuid-1");
+    }
+
+    #[tokio::test]
+    async fn discover_org_id_returns_error_on_empty_list() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/organizations"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+            .mount(&server)
+            .await;
+
+        let err = discover_org_id(&Client::new(), &server.uri(), "sessionKey=test")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::Parse(_)));
+    }
+
+    #[tokio::test]
+    async fn discover_org_id_returns_unauthorized_on_401() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let err = discover_org_id(&Client::new(), &server.uri(), "bad-cookie")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, FetchError::Unauthorized { status: 401 }));
     }
 
     // -------------------------------------------------------------------

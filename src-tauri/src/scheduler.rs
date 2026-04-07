@@ -35,6 +35,7 @@ use crate::providers::chatgpt::{self, ChatGptAuth};
 use crate::providers::claude::{self, ClaudeAuth};
 use crate::providers::FetchError;
 use crate::secrets::SecretStore;
+use crate::{CHATGPT_BASE_URL, CLAUDE_BASE_URL};
 
 /// Polling interval in seconds. Per `docs/ARCHITECTURE.md`: default 60s,
 /// minimum 30s. This will become user-configurable in a settings PR.
@@ -42,16 +43,11 @@ const POLL_INTERVAL_SECS: u64 = 60;
 
 /// Secret store key for the Claude auth blob (JSON-serialized
 /// [`ClaudeAuth`]).
-const CLAUDE_AUTH_KEY: &str = "claude.auth";
+pub const CLAUDE_AUTH_KEY: &str = "claude.auth";
 
 /// Secret store key for the ChatGPT auth blob (JSON-serialized
 /// [`ChatGptAuth`]).
-const CHATGPT_AUTH_KEY: &str = "chatgpt.auth";
-
-/// Production base URLs. Extracted as constants so they're easy to find
-/// when the inevitable domain change happens.
-const CLAUDE_BASE_URL: &str = "https://claude.ai";
-const CHATGPT_BASE_URL: &str = "https://chatgpt.com";
+pub const CHATGPT_AUTH_KEY: &str = "chatgpt.auth";
 
 /// Payload emitted to the frontend on every poll cycle via the
 /// `usage-update` Tauri event. `None` means "no data yet or auth
