@@ -1,9 +1,8 @@
 // usage-meter — frontend entry point.
 //
 // Two views: the usage display (default) and a settings panel for
-// connecting/disconnecting provider accounts via cookie paste.
-// Subscribes to `usage-update` events pushed by the Rust scheduler
-// and also pulls the latest snapshot on mount via `get_usage`.
+// connecting/disconnecting provider accounts. Primary auth uses an
+// embedded webview sign-in flow; cookie paste is available as fallback.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -63,24 +62,22 @@ function renderUpdate(update: UsageUpdate): void {
     status.style.display = hasAny ? "none" : "";
   }
 
-  // Sync settings panel auth indicators.
   syncAuthUI(update);
 }
 
 function syncAuthUI(update: UsageUpdate): void {
-  const claudeConnected = $("claude-connected");
-  const claudeForm = $("claude-form");
-  const chatgptConnected = $("chatgpt-connected");
-  const chatgptForm = $("chatgpt-form");
+  syncProviderAuth("claude", !!update.claude);
+  syncProviderAuth("chatgpt", !!update.chatgpt);
+}
 
-  if (claudeConnected && claudeForm) {
-    claudeConnected.style.display = update.claude ? "" : "none";
-    claudeForm.style.display = update.claude ? "none" : "";
-  }
-  if (chatgptConnected && chatgptForm) {
-    chatgptConnected.style.display = update.chatgpt ? "" : "none";
-    chatgptForm.style.display = update.chatgpt ? "none" : "";
-  }
+function syncProviderAuth(provider: string, connected: boolean): void {
+  const connectedEl = $(`${provider}-connected`);
+  const disconnectedEl = $(`${provider}-disconnected`);
+  const formEl = $(`${provider}-form`);
+
+  if (connectedEl) connectedEl.style.display = connected ? "" : "none";
+  if (disconnectedEl) disconnectedEl.style.display = connected ? "none" : "";
+  if (formEl && connected) formEl.style.display = "none";
 }
 
 // --- View toggling ---
@@ -95,16 +92,27 @@ function showView(view: "usage" | "settings"): void {
   if (view === "settings") syncAuthUI(lastUpdate);
 }
 
-// --- Connect / disconnect ---
+// --- Webview sign-in ---
+
+async function openSignIn(provider: string): Promise<void> {
+  const errorEl = $(`${provider}-error`);
+  if (errorEl) errorEl.textContent = "";
+
+  try {
+    await invoke("open_auth_window", { provider });
+  } catch (e) {
+    if (errorEl) errorEl.textContent = String(e);
+  }
+}
+
+// --- Cookie-paste fallback ---
 
 async function connectProvider(
   provider: "claude" | "chatgpt",
   cookie: string,
 ): Promise<void> {
   const errorEl = $(`${provider}-error`);
-  const btn = $(
-    `${provider}-connect-btn`,
-  ) as HTMLButtonElement | null;
+  const btn = $(`${provider}-connect-btn`) as HTMLButtonElement | null;
 
   if (!cookie.trim()) {
     if (errorEl) errorEl.textContent = "Cookie cannot be empty.";
@@ -118,19 +126,23 @@ async function connectProvider(
   }
 
   try {
-    const command = provider === "claude" ? "connect_claude" : "connect_chatgpt";
-    const update = await invoke<UsageUpdate>(command, { cookie: cookie.trim() });
+    const command =
+      provider === "claude" ? "connect_claude" : "connect_chatgpt";
+    const update = await invoke<UsageUpdate>(command, {
+      cookie: cookie.trim(),
+    });
     renderUpdate(update);
 
-    // Clear the input on success.
     const input = $(`${provider}-cookie`) as HTMLInputElement | null;
     if (input) input.value = "";
+    const form = $(`${provider}-form`);
+    if (form) form.style.display = "none";
   } catch (e) {
     if (errorEl) errorEl.textContent = String(e);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = "Connect";
+      btn.textContent = "Save";
     }
   }
 }
@@ -153,7 +165,27 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("open-settings")?.addEventListener("click", () => showView("settings"));
   $("close-settings")?.addEventListener("click", () => showView("usage"));
 
-  // Connect buttons.
+  // Sign-in buttons (webview auth).
+  document.querySelectorAll(".btn-signin").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const provider = (btn as HTMLElement).dataset.provider;
+      if (provider) openSignIn(provider);
+    });
+  });
+
+  // Fallback toggle — show/hide cookie paste form.
+  document.querySelectorAll(".btn-fallback-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const provider = (btn as HTMLElement).dataset.provider;
+      if (!provider) return;
+      const form = $(`${provider}-form`);
+      if (form) {
+        form.style.display = form.style.display === "none" ? "" : "none";
+      }
+    });
+  });
+
+  // Cookie-paste connect buttons.
   $("claude-connect-btn")?.addEventListener("click", () => {
     const input = $("claude-cookie") as HTMLInputElement | null;
     if (input) connectProvider("claude", input.value);
@@ -169,6 +201,21 @@ window.addEventListener("DOMContentLoaded", async () => {
       const provider = (btn as HTMLElement).dataset.provider;
       if (provider) disconnectProvider(provider);
     });
+  });
+
+  // Listen for auth completion from the webview flow.
+  await listen<UsageUpdate>("auth-complete", (event) => {
+    renderUpdate(event.payload);
+    showView("usage");
+  });
+
+  await listen<string>("auth-error", (event) => {
+    // Show error in whichever provider section is relevant.
+    // For now, show in both — the user knows which one they tried.
+    const claudeErr = $("claude-error");
+    const chatgptErr = $("chatgpt-error");
+    if (claudeErr) claudeErr.textContent = event.payload;
+    if (chatgptErr) chatgptErr.textContent = event.payload;
   });
 
   // Subscribe to push events from the scheduler.
