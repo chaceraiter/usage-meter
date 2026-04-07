@@ -6,6 +6,7 @@
 //! `usage-update` events to the frontend. IPC commands let the
 //! frontend pull, connect, and disconnect providers on demand.
 
+pub mod auth;
 pub mod model;
 pub mod providers;
 pub mod scheduler;
@@ -189,6 +190,8 @@ pub fn run() {
             connect_claude,
             connect_chatgpt,
             disconnect,
+            auth::open_auth_window,
+            auth::cancel_auth,
         ])
         .setup(move |app| {
             // --- System tray ---

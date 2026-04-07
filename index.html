@@ -56,7 +56,11 @@
             <span class="auth-label">Connected</span>
             <button class="btn btn-disconnect" data-provider="claude">Disconnect</button>
           </div>
-          <div class="auth-form" id="claude-form">
+          <div class="auth-disconnected" id="claude-disconnected">
+            <button class="btn btn-signin" data-provider="claude">Sign in with Claude</button>
+            <button class="btn btn-fallback-toggle" data-provider="claude">paste cookie</button>
+          </div>
+          <div class="auth-form" id="claude-form" style="display: none">
             <input
               type="password"
               class="cookie-input"
@@ -64,7 +68,7 @@
               placeholder="Paste sessionKey cookie…"
               autocomplete="off"
             />
-            <button class="btn btn-connect" id="claude-connect-btn">Connect</button>
+            <button class="btn btn-connect" id="claude-connect-btn">Save</button>
           </div>
         </div>
         <p class="auth-error" id="claude-error"></p>
@@ -77,7 +81,11 @@
             <span class="auth-label">Connected</span>
             <button class="btn btn-disconnect" data-provider="chatgpt">Disconnect</button>
           </div>
-          <div class="auth-form" id="chatgpt-form">
+          <div class="auth-disconnected" id="chatgpt-disconnected">
+            <button class="btn btn-signin" data-provider="chatgpt">Sign in with ChatGPT</button>
+            <button class="btn btn-fallback-toggle" data-provider="chatgpt">paste cookie</button>
+          </div>
+          <div class="auth-form" id="chatgpt-form" style="display: none">
             <input
               type="password"
               class="cookie-input"
@@ -85,7 +93,7 @@
               placeholder="Paste cookie…"
               autocomplete="off"
             />
-            <button class="btn btn-connect" id="chatgpt-connect-btn">Connect</button>
+            <button class="btn btn-connect" id="chatgpt-connect-btn">Save</button>
           </div>
         </div>
         <p class="auth-error" id="chatgpt-error"></p>
