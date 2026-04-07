@@ -14,12 +14,14 @@
     "windows": [
       {
         "title": "usage-meter",
+        "label": "main",
         "width": 320,
-        "height": 200,
-        "resizable": true,
-        "alwaysOnTop": false,
-        "decorations": true,
-        "transparent": false
+        "height": 240,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "transparent": true,
+        "skipTaskbar": true
       }
     ],
     "security": {
