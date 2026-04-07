@@ -1,8 +1,8 @@
 /* usage-meter — widget styling.
  *
- * Compact layout for a 320x200 floating window. Two provider sections,
- * each with two rows (5-hour and weekly percent). Designed to be
- * glanceable — large numbers, minimal chrome.
+ * Compact layout for a floating window. Two views: usage display and
+ * settings panel (cookie-paste auth). Designed to be glanceable —
+ * large numbers, minimal chrome.
  */
 
 :root {
@@ -32,12 +32,31 @@ body {
   gap: 8px;
 }
 
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .title {
   margin: 0;
   font-size: 0.85rem;
   font-weight: 600;
-  text-align: center;
   opacity: 0.6;
+}
+
+.gear-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  opacity: 0.4;
+  padding: 0 2px;
+  color: inherit;
+}
+
+.gear-btn:hover {
+  opacity: 0.8;
 }
 
 .provider {
@@ -81,9 +100,92 @@ body {
   opacity: 0.5;
 }
 
+/* --- Settings view --- */
+
+.settings {
+  gap: 10px;
+}
+
+.auth-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auth-connected {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.auth-label {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.auth-form {
+  display: flex;
+  gap: 6px;
+}
+
+.cookie-input {
+  flex: 1;
+  font-size: 0.75rem;
+  padding: 4px 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: inherit;
+  color: inherit;
+  min-width: 0;
+}
+
+.cookie-input::placeholder {
+  opacity: 0.4;
+}
+
+.btn {
+  font-size: 0.7rem;
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  background: inherit;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  opacity: 0.8;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn-disconnect {
+  border-color: #c44;
+  color: #c44;
+}
+
+.auth-error {
+  margin: 0;
+  font-size: 0.7rem;
+  color: #c44;
+  min-height: 0;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
     background-color: #2f2f2f;
+  }
+
+  .cookie-input {
+    border-color: #555;
+  }
+
+  .btn {
+    border-color: #555;
   }
 }

@@ -38,6 +38,8 @@ tokio = { version = "1", features = ["time"] }
 # Structured logging — the scheduler logs fetch failures so the user
 # can diagnose issues from `pnpm tauri dev` console output.
 log = "0.4"
+# UUID v4 generation for device-id and anonymous-id headers.
+uuid = { version = "1", features = ["v4"] }
 
 # OS credential store. `apple-native` uses the macOS Security framework,
 # `windows-native` uses the Windows Credential Manager, `linux-native` uses
