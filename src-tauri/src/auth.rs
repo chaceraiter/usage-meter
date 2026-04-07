@@ -57,10 +57,16 @@ pub async fn open_auth_window(
 
     let url = Url::parse(&login_url).map_err(|e| format!("Invalid URL: {e}"))?;
 
+    // Temporarily lower the main widget so the login window isn't hidden behind it.
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.set_always_on_top(false);
+    }
+
     WebviewWindowBuilder::new(&app, LOGIN_WINDOW_LABEL, WebviewUrl::External(url))
         .title(format!("Sign in — {provider}"))
         .inner_size(480.0, 700.0)
         .resizable(true)
+        .focused(true)
         .build()
         .map_err(|e| format!("Failed to open login window: {e}"))?;
 
@@ -258,10 +264,16 @@ async fn connect_chatgpt_from_cookies(
     Ok(update)
 }
 
-/// Clears browsing data and closes the login window.
+/// Clears browsing data, closes the login window, and restores the
+/// main widget's always-on-top state.
 fn cleanup_login_window(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
         let _ = win.clear_all_browsing_data();
         let _ = win.close();
+    }
+
+    // Restore always-on-top on the main widget.
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.set_always_on_top(true);
     }
 }

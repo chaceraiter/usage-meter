@@ -15,12 +15,12 @@
       {
         "title": "usage-meter",
         "label": "main",
-        "width": 320,
-        "height": 240,
+        "width": 280,
+        "height": 220,
         "resizable": false,
         "alwaysOnTop": true,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
         "skipTaskbar": true
       }
     ],
