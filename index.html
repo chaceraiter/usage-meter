@@ -10,8 +10,8 @@
   <body>
     <!-- Usage display (default view) -->
     <main class="widget" id="usage-view">
-      <div class="header-row">
-        <h1 class="title">usage-meter</h1>
+      <div class="header-row" data-tauri-drag-region>
+        <h1 class="title" data-tauri-drag-region>usage-meter</h1>
         <button class="gear-btn" id="open-settings" aria-label="Settings">⚙</button>
       </div>
 
@@ -44,8 +44,8 @@
 
     <!-- Settings view (hidden by default) -->
     <div class="widget settings" id="settings-view" style="display: none">
-      <div class="header-row">
-        <h1 class="title">settings</h1>
+      <div class="header-row" data-tauri-drag-region>
+        <h1 class="title" data-tauri-drag-region>settings</h1>
         <button class="gear-btn" id="close-settings" aria-label="Back">✕</button>
       </div>
 

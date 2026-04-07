@@ -1,8 +1,8 @@
 /* usage-meter — widget styling.
  *
- * Compact layout for a floating window. Two views: usage display and
- * settings panel (cookie-paste auth). Designed to be glanceable —
- * large numbers, minimal chrome.
+ * Frameless, always-on-top floating widget. Two views: usage display
+ * and settings panel (cookie-paste auth). Transparent background with
+ * rounded corners so it feels native on macOS.
  */
 
 :root {
@@ -13,7 +13,7 @@
   font-weight: 400;
 
   color: #0f0f0f;
-  background-color: #f6f6f6;
+  background-color: transparent;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -23,6 +23,7 @@
 
 body {
   margin: 0;
+  background: transparent;
 }
 
 .widget {
@@ -30,12 +31,22 @@ body {
   flex-direction: column;
   padding: 12px 16px;
   gap: 8px;
+  background-color: rgba(246, 246, 246, 0.92);
+  border-radius: 12px;
+  margin: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  /* Prevent text selection in the widget body — feels more native. */
+  user-select: none;
+  -webkit-user-select: none;
 }
+
+/* --- Header / drag region --- */
 
 .header-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  cursor: grab;
 }
 
 .title {
@@ -58,6 +69,8 @@ body {
 .gear-btn:hover {
   opacity: 0.8;
 }
+
+/* --- Usage rows --- */
 
 .provider {
   display: flex;
@@ -137,6 +150,9 @@ body {
   background: inherit;
   color: inherit;
   min-width: 0;
+  /* Allow text selection inside inputs. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .cookie-input::placeholder {
@@ -176,9 +192,10 @@ body {
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  .widget {
+    background-color: rgba(47, 47, 47, 0.92);
     color: #f6f6f6;
-    background-color: #2f2f2f;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
   }
 
   .cookie-input {
