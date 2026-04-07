@@ -1,8 +1,9 @@
 /* usage-meter — widget styling.
  *
  * Frameless, always-on-top floating widget. Two views: usage display
- * and settings panel (cookie-paste auth). Transparent background with
- * rounded corners so it feels native on macOS.
+ * and settings panel. Edge-to-edge solid background — no transparency
+ * needed, avoids a macOS WKWebView bug where transparent windows
+ * render as white after DMG bundling.
  */
 
 :root {
@@ -13,7 +14,7 @@
   font-weight: 400;
 
   color: #0f0f0f;
-  background-color: transparent;
+  background-color: #f0f0f0;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -23,19 +24,14 @@
 
 body {
   margin: 0;
-  background: transparent;
+  overflow: hidden;
 }
 
 .widget {
   display: flex;
   flex-direction: column;
-  padding: 12px 16px;
-  gap: 8px;
-  background-color: rgba(246, 246, 246, 0.92);
-  border-radius: 12px;
-  margin: 4px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
-  /* Prevent text selection in the widget body — feels more native. */
+  padding: 10px 14px;
+  gap: 6px;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -51,23 +47,26 @@ body {
 
 .title {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 .gear-btn {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 1.1rem;
   opacity: 0.4;
-  padding: 0 2px;
+  padding: 4px 6px;
+  margin: -4px -6px;
   color: inherit;
+  border-radius: 4px;
 }
 
 .gear-btn:hover {
-  opacity: 0.8;
+  opacity: 0.7;
+  background-color: rgba(0, 0, 0, 0.06);
 }
 
 /* --- Usage rows --- */
@@ -75,33 +74,33 @@ body {
 .provider {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .provider-name {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
 .row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding: 1px 0;
+  padding: 0;
 }
 
 .label {
-  font-size: 0.85rem;
-  opacity: 0.7;
+  font-size: 0.8rem;
+  opacity: 0.65;
 }
 
 .value {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -109,14 +108,14 @@ body {
 .status {
   margin: 0;
   text-align: center;
-  font-size: 0.75rem;
-  opacity: 0.5;
+  font-size: 0.7rem;
+  opacity: 0.45;
 }
 
 /* --- Settings view --- */
 
 .settings {
-  gap: 10px;
+  gap: 8px;
 }
 
 .auth-section {
@@ -132,8 +131,14 @@ body {
 }
 
 .auth-label {
-  font-size: 0.8rem;
-  opacity: 0.7;
+  font-size: 0.75rem;
+  opacity: 0.65;
+}
+
+.auth-disconnected {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .auth-form {
@@ -143,14 +148,13 @@ body {
 
 .cookie-input {
   flex: 1;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   padding: 4px 6px;
   border: 1px solid #ccc;
   border-radius: 4px;
   background: inherit;
   color: inherit;
   min-width: 0;
-  /* Allow text selection inside inputs. */
   user-select: text;
   -webkit-user-select: text;
 }
@@ -160,7 +164,7 @@ body {
 }
 
 .btn {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   padding: 4px 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -184,20 +188,14 @@ body {
 }
 
 .btn-fallback-toggle {
-  font-size: 0.6rem;
-  opacity: 0.4;
+  font-size: 0.55rem;
+  opacity: 0.35;
   border: none;
   padding: 4px 4px;
 }
 
 .btn-fallback-toggle:hover {
-  opacity: 0.7;
-}
-
-.auth-disconnected {
-  display: flex;
-  gap: 6px;
-  align-items: center;
+  opacity: 0.6;
 }
 
 .btn-disconnect {
@@ -207,16 +205,26 @@ body {
 
 .auth-error {
   margin: 0;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: #c44;
   min-height: 0;
 }
 
+.auth-note {
+  margin: 0;
+  font-size: 0.55rem;
+  opacity: 0.35;
+  font-style: italic;
+}
+
 @media (prefers-color-scheme: dark) {
-  .widget {
-    background-color: rgba(47, 47, 47, 0.92);
-    color: #f6f6f6;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  :root {
+    color: #e8e8e8;
+    background-color: #2a2a2a;
+  }
+
+  .gear-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08);
   }
 
   .cookie-input {
