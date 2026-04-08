@@ -82,9 +82,16 @@ function renderUpdate(update: UsageUpdate): void {
   if (g5hR) g5hR.textContent = formatResetsIn(update.chatgpt?.five_hour ?? null);
   if (gwR) gwR.textContent = formatResetsIn(update.chatgpt?.weekly ?? null);
 
+  // Show/hide provider sections based on connection state.
+  const claudeSection = $("claude-section");
+  const chatgptSection = $("chatgpt-section");
+  if (claudeSection) claudeSection.style.display = update.claude ? "" : "none";
+  if (chatgptSection)
+    chatgptSection.style.display = update.chatgpt ? "" : "none";
+
   if (status) {
     const hasAny = update.claude || update.chatgpt;
-    status.textContent = hasAny ? "" : "no accounts connected";
+    status.textContent = hasAny ? "" : "open settings to connect";
     status.style.display = hasAny ? "none" : "";
   }
 
@@ -124,10 +131,30 @@ async function openSignIn(provider: string): Promise<void> {
   const errorEl = $(`${provider}-error`);
   if (errorEl) errorEl.textContent = "";
 
+  const btn = document.querySelector(
+    `.btn-signin[data-provider="${provider}"]`,
+  ) as HTMLButtonElement | null;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Signing in…";
+  }
+
   try {
     await invoke("open_auth_window", { provider });
   } catch (e) {
     if (errorEl) errorEl.textContent = String(e);
+    resetSignInBtn(provider);
+  }
+}
+
+function resetSignInBtn(provider: string): void {
+  const btn = document.querySelector(
+    `.btn-signin[data-provider="${provider}"]`,
+  ) as HTMLButtonElement | null;
+  if (btn) {
+    btn.disabled = false;
+    const label = provider === "claude" ? "Claude" : "ChatGPT";
+    btn.textContent = `Sign in with ${label}`;
   }
 }
 
@@ -190,6 +217,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // View toggling.
   $("open-settings")?.addEventListener("click", () => showView("settings"));
   $("close-settings")?.addEventListener("click", () => showView("usage"));
+  $("status")?.addEventListener("click", () => showView("settings"));
 
   // Sign-in buttons (webview auth).
   document.querySelectorAll(".btn-signin").forEach((btn) => {
@@ -231,13 +259,15 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Listen for auth completion from the webview flow.
   await listen<UsageUpdate>("auth-complete", (event) => {
+    resetSignInBtn("claude");
+    resetSignInBtn("chatgpt");
     renderUpdate(event.payload);
     showView("usage");
   });
 
   await listen<string>("auth-error", (event) => {
-    // Show error in whichever provider section is relevant.
-    // For now, show in both — the user knows which one they tried.
+    resetSignInBtn("claude");
+    resetSignInBtn("chatgpt");
     const claudeErr = $("claude-error");
     const chatgptErr = $("chatgpt-error");
     if (claudeErr) claudeErr.textContent = event.payload;

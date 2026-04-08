@@ -124,6 +124,15 @@ body {
   opacity: 0.45;
 }
 
+.status-link {
+  cursor: pointer;
+}
+
+.status-link:hover {
+  opacity: 0.65;
+  text-decoration: underline;
+}
+
 /* --- Settings view --- */
 
 .settings {
