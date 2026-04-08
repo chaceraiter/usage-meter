@@ -1,0 +1,60 @@
+# Release — builds a macOS .dmg and attaches it to a GitHub Release.
+#
+# Triggered by pushing a semver tag (e.g. v0.1.0). Creates a draft
+# release so the maintainer can review before publishing.
+#
+# The build is unsigned. macOS Gatekeeper will block first launch —
+# users need right-click → Open. Code signing + notarization is a
+# future step that requires an Apple Developer Program membership.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build macOS .dmg
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri app
+        run: pnpm tauri build
+
+      - name: Find .dmg artifact
+        id: find-dmg
+        run: |
+          DMG=$(find src-tauri/target/release/bundle -name '*.dmg' -type f | head -1)
+          echo "path=$DMG" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$DMG")" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: ${{ steps.find-dmg.outputs.path }}
