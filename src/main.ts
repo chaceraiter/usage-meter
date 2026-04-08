@@ -42,6 +42,23 @@ function formatPercent(window: UsageWindow | null): string {
   return `${Math.round(window.used_percent)}%`;
 }
 
+function formatResetsIn(window: UsageWindow | null): string {
+  if (!window?.resets_at) return "";
+  const now = Date.now();
+  const resets = new Date(window.resets_at).getTime();
+  const diffMs = resets - now;
+  if (diffMs <= 0) return "resetting…";
+
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  if (hrs < 24) return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  const remHrs = hrs % 24;
+  return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+}
+
 function renderUpdate(update: UsageUpdate): void {
   lastUpdate = update;
 
@@ -55,6 +72,15 @@ function renderUpdate(update: UsageUpdate): void {
   if (cw) cw.textContent = formatPercent(update.claude?.weekly ?? null);
   if (g5h) g5h.textContent = formatPercent(update.chatgpt?.five_hour ?? null);
   if (gw) gw.textContent = formatPercent(update.chatgpt?.weekly ?? null);
+
+  const c5hR = $("claude-5h-reset");
+  const cwR = $("claude-weekly-reset");
+  const g5hR = $("chatgpt-5h-reset");
+  const gwR = $("chatgpt-weekly-reset");
+  if (c5hR) c5hR.textContent = formatResetsIn(update.claude?.five_hour ?? null);
+  if (cwR) cwR.textContent = formatResetsIn(update.claude?.weekly ?? null);
+  if (g5hR) g5hR.textContent = formatResetsIn(update.chatgpt?.five_hour ?? null);
+  if (gwR) gwR.textContent = formatResetsIn(update.chatgpt?.weekly ?? null);
 
   if (status) {
     const hasAny = update.claude || update.chatgpt;
@@ -230,4 +256,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   } catch {
     // Scheduler may not have run yet — the listen above will catch it.
   }
+
+  // Refresh "resets in" countdowns every 30s.
+  setInterval(() => renderUpdate(lastUpdate), 30_000);
 });

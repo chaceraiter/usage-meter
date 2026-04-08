@@ -98,10 +98,22 @@ body {
   opacity: 0.65;
 }
 
+.value-group {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
 .value {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 1.05rem;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.resets-in {
+  font-size: 0.6rem;
+  opacity: 0.4;
   font-variant-numeric: tabular-nums;
 }
 
