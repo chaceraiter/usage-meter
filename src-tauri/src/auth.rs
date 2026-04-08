@@ -118,9 +118,25 @@ async fn poll_for_login(
             None => return Err("Login window was closed.".into()),
         };
 
+        // Cookie extraction touches the native webview cookie store,
+        // which runs on the main thread. If the user is dragging the
+        // window at the same moment, this can race. Treat extraction
+        // failures as "not ready yet" and retry on the next tick.
         let cookie_header = match provider {
-            "claude" => extract_claude_cookies(&win)?,
-            "chatgpt" => extract_chatgpt_cookies(&win)?,
+            "claude" => match extract_claude_cookies(&win) {
+                Ok(h) => h,
+                Err(e) => {
+                    warn!("cookie read failed (will retry): {e}");
+                    continue;
+                }
+            },
+            "chatgpt" => match extract_chatgpt_cookies(&win) {
+                Ok(h) => h,
+                Err(e) => {
+                    warn!("cookie read failed (will retry): {e}");
+                    continue;
+                }
+            },
             _ => return Err(format!("unknown provider: {provider}")),
         };
 
