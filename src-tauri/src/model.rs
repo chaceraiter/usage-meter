@@ -104,3 +104,89 @@ pub struct UsageSnapshot {
     /// Provider-specific extras. See [`ProviderExtras`].
     pub extras: ProviderExtras,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_window() -> UsageWindow {
+        UsageWindow {
+            used_percent: 42.5,
+            resets_at: DateTime::parse_from_rfc3339("2026-04-09T12:34:56Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            window_seconds: FIVE_HOUR_SECONDS,
+        }
+    }
+
+    #[test]
+    fn window_constants_match_documented_values() {
+        assert_eq!(FIVE_HOUR_SECONDS, 18_000);
+        assert_eq!(SEVEN_DAY_SECONDS, 604_800);
+    }
+
+    #[test]
+    fn usage_window_json_round_trip() {
+        let window = sample_window();
+        let json = serde_json::to_string(&window).unwrap();
+        let decoded: UsageWindow = serde_json::from_str(&json).unwrap();
+        assert_eq!(window, decoded);
+    }
+
+    #[test]
+    fn usage_window_serializes_snake_case_fields() {
+        // The frontend depends on these exact field names.
+        let json = serde_json::to_value(sample_window()).unwrap();
+        assert!(json.get("used_percent").is_some());
+        assert!(json.get("resets_at").is_some());
+        assert!(json.get("window_seconds").is_some());
+    }
+
+    #[test]
+    fn usage_snapshot_round_trip_with_both_windows() {
+        let snapshot = UsageSnapshot {
+            five_hour: Some(sample_window()),
+            weekly: Some(UsageWindow {
+                window_seconds: SEVEN_DAY_SECONDS,
+                ..sample_window()
+            }),
+            fetched_at: Utc::now(),
+            extras: ProviderExtras::None,
+        };
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let decoded: UsageSnapshot = serde_json::from_str(&json).unwrap();
+        assert_eq!(snapshot, decoded);
+    }
+
+    #[test]
+    fn usage_snapshot_round_trip_with_none_windows() {
+        // Disconnected providers and providers that omit a window both
+        // surface as None — the round-trip must survive.
+        let snapshot = UsageSnapshot {
+            five_hour: None,
+            weekly: None,
+            fetched_at: Utc::now(),
+            extras: ProviderExtras::None,
+        };
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let decoded: UsageSnapshot = serde_json::from_str(&json).unwrap();
+        assert_eq!(snapshot, decoded);
+    }
+
+    #[test]
+    fn provider_extras_none_serializes_with_kind_tag() {
+        // The enum uses #[serde(tag = "kind", rename_all = "snake_case")]
+        // so ProviderExtras::None must serialize as {"kind": "none"}.
+        let json = serde_json::to_value(ProviderExtras::None).unwrap();
+        assert_eq!(json, serde_json::json!({"kind": "none"}));
+    }
+
+    #[test]
+    fn usage_window_preserves_timestamp_precision_through_json() {
+        // Resets_at drives countdown labels — must survive serde intact.
+        let window = sample_window();
+        let json = serde_json::to_string(&window).unwrap();
+        let decoded: UsageWindow = serde_json::from_str(&json).unwrap();
+        assert_eq!(window.resets_at, decoded.resets_at);
+    }
+}

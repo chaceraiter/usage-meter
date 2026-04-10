@@ -82,3 +82,92 @@ pub(crate) fn check_status(status: reqwest::StatusCode) -> Result<(), FetchError
         _ => FetchError::UnexpectedStatus { status: code },
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn check_status_accepts_all_2xx() {
+        for code in [200u16, 201, 204, 299] {
+            let status = StatusCode::from_u16(code).unwrap();
+            assert!(
+                check_status(status).is_ok(),
+                "expected {code} to be treated as success"
+            );
+        }
+    }
+
+    #[test]
+    fn check_status_maps_401_to_unauthorized() {
+        let err = check_status(StatusCode::UNAUTHORIZED).unwrap_err();
+        assert!(matches!(err, FetchError::Unauthorized { status: 401 }));
+    }
+
+    #[test]
+    fn check_status_maps_403_to_unauthorized() {
+        let err = check_status(StatusCode::FORBIDDEN).unwrap_err();
+        assert!(matches!(err, FetchError::Unauthorized { status: 403 }));
+    }
+
+    #[test]
+    fn check_status_maps_429_to_rate_limited() {
+        let err = check_status(StatusCode::TOO_MANY_REQUESTS).unwrap_err();
+        assert!(matches!(err, FetchError::RateLimited));
+    }
+
+    #[test]
+    fn check_status_maps_5xx_to_server_error() {
+        for code in [500u16, 502, 503, 504, 599] {
+            let status = StatusCode::from_u16(code).unwrap();
+            let err = check_status(status).unwrap_err();
+            assert!(
+                matches!(err, FetchError::ServerError { status } if status == code),
+                "expected {code} to map to ServerError, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn check_status_maps_other_4xx_to_unexpected() {
+        // 404 and similar codes we don't have dedicated handling for
+        // should fall through to UnexpectedStatus so the scheduler
+        // surfaces them rather than silently retrying.
+        let err = check_status(StatusCode::NOT_FOUND).unwrap_err();
+        assert!(matches!(err, FetchError::UnexpectedStatus { status: 404 }));
+
+        let err = check_status(StatusCode::BAD_REQUEST).unwrap_err();
+        assert!(matches!(err, FetchError::UnexpectedStatus { status: 400 }));
+    }
+
+    #[test]
+    fn fetch_error_display_messages_are_non_empty() {
+        // Display impls feed logs and UI — all variants must say
+        // something meaningful.
+        let variants = [
+            FetchError::Unauthorized { status: 401 },
+            FetchError::RateLimited,
+            FetchError::ServerError { status: 500 },
+            FetchError::UnexpectedStatus { status: 418 },
+            FetchError::Parse("bad json".into()),
+            FetchError::Network("dns failure".into()),
+        ];
+        for err in variants {
+            let msg = err.to_string();
+            assert!(!msg.is_empty(), "empty Display for {err:?}");
+        }
+    }
+
+    #[test]
+    fn fetch_error_unauthorized_display_includes_status_code() {
+        let err = FetchError::Unauthorized { status: 403 };
+        assert!(err.to_string().contains("403"));
+    }
+
+    #[test]
+    fn fetch_error_parse_display_includes_detail() {
+        let err = FetchError::Parse("unexpected field: foo".into());
+        assert!(err.to_string().contains("unexpected field: foo"));
+    }
+}
