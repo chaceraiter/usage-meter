@@ -89,8 +89,8 @@ pub async fn run(handle: AppHandle, state: Arc<AppState>) {
     // First tick is immediate so the UI doesn't sit empty for a full
     // interval on cold start.
     loop {
-        let claude_snap = poll_claude(&client, &state).await;
-        let chatgpt_snap = poll_chatgpt(&client, &state).await;
+        let claude_snap = poll_claude(&client, CLAUDE_BASE_URL, &state).await;
+        let chatgpt_snap = poll_chatgpt(&client, CHATGPT_BASE_URL, &state).await;
 
         let update = UsageUpdate {
             claude: claude_snap,
@@ -111,7 +111,14 @@ pub async fn run(handle: AppHandle, state: Arc<AppState>) {
 
 /// Attempts one Claude fetch cycle. Returns `Some(snapshot)` on
 /// success, `None` if credentials are missing or the fetch failed.
-async fn poll_claude(client: &reqwest::Client, state: &AppState) -> Option<UsageSnapshot> {
+///
+/// `base_url` is a parameter (rather than reading [`CLAUDE_BASE_URL`]
+/// directly) so tests can point it at a wiremock stub.
+async fn poll_claude(
+    client: &reqwest::Client,
+    base_url: &str,
+    state: &AppState,
+) -> Option<UsageSnapshot> {
     let auth_json = match state.secrets.get(CLAUDE_AUTH_KEY) {
         Ok(Some(json)) => json,
         Ok(None) => return None, // not configured yet
@@ -129,7 +136,7 @@ async fn poll_claude(client: &reqwest::Client, state: &AppState) -> Option<Usage
         }
     };
 
-    match claude::fetch_usage(client, CLAUDE_BASE_URL, &auth).await {
+    match claude::fetch_usage(client, base_url, &auth).await {
         Ok(snap) => {
             info!(
                 "Claude: {}% (5h), {}% (weekly)",
@@ -151,7 +158,11 @@ async fn poll_claude(client: &reqwest::Client, state: &AppState) -> Option<Usage
 }
 
 /// Attempts one ChatGPT fetch cycle. Same logic as [`poll_claude`].
-async fn poll_chatgpt(client: &reqwest::Client, state: &AppState) -> Option<UsageSnapshot> {
+async fn poll_chatgpt(
+    client: &reqwest::Client,
+    base_url: &str,
+    state: &AppState,
+) -> Option<UsageSnapshot> {
     let auth_json = match state.secrets.get(CHATGPT_AUTH_KEY) {
         Ok(Some(json)) => json,
         Ok(None) => return None,
@@ -169,7 +180,7 @@ async fn poll_chatgpt(client: &reqwest::Client, state: &AppState) -> Option<Usag
         }
     };
 
-    match chatgpt::fetch_usage(client, CHATGPT_BASE_URL, &auth).await {
+    match chatgpt::fetch_usage(client, base_url, &auth).await {
         Ok(snap) => {
             info!(
                 "ChatGPT: {}% (5h), {}% (weekly)",
@@ -186,5 +197,281 @@ async fn poll_chatgpt(client: &reqwest::Client, state: &AppState) -> Option<Usag
             warn!("ChatGPT fetch failed: {e}");
             state.snapshots.read().await.chatgpt.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Integration tests for the per-provider poll functions.
+    //!
+    //! These tests drive [`poll_claude`] and [`poll_chatgpt`] against a
+    //! wiremock HTTP stub, exercising the full secret-store → fetch →
+    //! error-classification → stale-data pipeline without a running
+    //! Tauri runtime. The entry point [`run`] is not tested directly
+    //! because it owns an infinite loop and an `AppHandle` (event
+    //! emission); its behavior is covered structurally by the per-
+    //! provider poll tests plus the provider-level wiremock tests.
+    use super::*;
+    use crate::model::{ProviderExtras, UsageWindow, FIVE_HOUR_SECONDS};
+    use crate::secrets::MemoryStore;
+    use chrono::{DateTime, Utc};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const CLAUDE_FIXTURE: &str = include_str!("../fixtures/claude-usage.json");
+    const CHATGPT_FIXTURE: &str = include_str!("../fixtures/chatgpt-usage.json");
+
+    fn claude_auth_json() -> String {
+        serde_json::to_string(&ClaudeAuth {
+            org_id: "test-org-uuid".to_string(),
+            cookie: "sessionKey=test-session".to_string(),
+            device_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            anonymous_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            client_version: "test-version".to_string(),
+        })
+        .unwrap()
+    }
+
+    fn chatgpt_auth_json() -> String {
+        serde_json::to_string(&ChatGptAuth {
+            cookie: "session=test-session".to_string(),
+            device_id: "00000000-0000-0000-0000-000000000001".to_string(),
+            session_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            client_version: "test-version".to_string(),
+            build_number: "test-build".to_string(),
+        })
+        .unwrap()
+    }
+
+    fn state_with_secret(key: &str, value: &str) -> Arc<AppState> {
+        let store = Box::new(MemoryStore::new());
+        store.set(key, value).unwrap();
+        Arc::new(AppState::new(store))
+    }
+
+    fn sample_snapshot(percent: f32) -> UsageSnapshot {
+        UsageSnapshot {
+            five_hour: Some(UsageWindow {
+                used_percent: percent,
+                resets_at: DateTime::parse_from_rfc3339("2026-04-09T12:34:56Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+                window_seconds: FIVE_HOUR_SECONDS,
+            }),
+            weekly: None,
+            fetched_at: Utc::now(),
+            extras: ProviderExtras::None,
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // AppState / constants
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn app_state_new_starts_with_empty_snapshots() {
+        let state = AppState::new(Box::new(MemoryStore::new()));
+        let update = state.snapshots.try_read().unwrap();
+        assert!(update.claude.is_none());
+        assert!(update.chatgpt.is_none());
+    }
+
+    #[test]
+    fn poll_interval_matches_documented_default() {
+        // docs/ARCHITECTURE.md says 60s default. Regression guard.
+        assert_eq!(POLL_INTERVAL_SECS, 60);
+    }
+
+    #[test]
+    fn auth_keys_are_stable() {
+        // Changing these would orphan everyone's stored credentials.
+        assert_eq!(CLAUDE_AUTH_KEY, "claude.auth");
+        assert_eq!(CHATGPT_AUTH_KEY, "chatgpt.auth");
+    }
+
+    #[test]
+    fn usage_update_serializes_to_json() {
+        let update = UsageUpdate {
+            claude: None,
+            chatgpt: None,
+        };
+        let json = serde_json::to_string(&update).unwrap();
+        assert!(json.contains("\"claude\""));
+        assert!(json.contains("\"chatgpt\""));
+    }
+
+    // -------------------------------------------------------------------
+    // poll_claude — full pipeline
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn poll_claude_returns_none_when_no_credentials() {
+        let state = Arc::new(AppState::new(Box::new(MemoryStore::new())));
+        let client = reqwest::Client::new();
+
+        let result = poll_claude(&client, "http://unused.invalid", &state).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn poll_claude_returns_none_when_auth_blob_is_corrupt() {
+        let state = state_with_secret(CLAUDE_AUTH_KEY, "not valid json");
+        let client = reqwest::Client::new();
+
+        let result = poll_claude(&client, "http://unused.invalid", &state).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn poll_claude_returns_snapshot_on_200() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/organizations/test-org-uuid/usage"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(CLAUDE_FIXTURE, "application/json"),
+            )
+            .mount(&server)
+            .await;
+
+        let state = state_with_secret(CLAUDE_AUTH_KEY, &claude_auth_json());
+        let client = reqwest::Client::new();
+
+        let snap = poll_claude(&client, &server.uri(), &state)
+            .await
+            .expect("poll should succeed");
+        assert_eq!(snap.five_hour.unwrap().used_percent, 1.0);
+    }
+
+    #[tokio::test]
+    async fn poll_claude_returns_none_on_401_clearing_cached_snapshot() {
+        // Unauthorized must clear the cache so the UI prompts re-auth
+        // instead of silently showing stale numbers from before the
+        // cookie expired.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let state = state_with_secret(CLAUDE_AUTH_KEY, &claude_auth_json());
+        // Seed a stale value.
+        state.snapshots.write().await.claude = Some(sample_snapshot(50.0));
+
+        let client = reqwest::Client::new();
+        let result = poll_claude(&client, &server.uri(), &state).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn poll_claude_keeps_stale_on_500() {
+        // Server errors are transient — the UI should keep showing the
+        // last known value rather than flickering to "—".
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let state = state_with_secret(CLAUDE_AUTH_KEY, &claude_auth_json());
+        let stale = sample_snapshot(77.0);
+        state.snapshots.write().await.claude = Some(stale.clone());
+
+        let client = reqwest::Client::new();
+        let result = poll_claude(&client, &server.uri(), &state).await;
+        assert_eq!(result, Some(stale));
+    }
+
+    #[tokio::test]
+    async fn poll_claude_keeps_stale_on_429() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(429))
+            .mount(&server)
+            .await;
+
+        let state = state_with_secret(CLAUDE_AUTH_KEY, &claude_auth_json());
+        let stale = sample_snapshot(33.0);
+        state.snapshots.write().await.claude = Some(stale.clone());
+
+        let client = reqwest::Client::new();
+        let result = poll_claude(&client, &server.uri(), &state).await;
+        assert_eq!(result, Some(stale));
+    }
+
+    // -------------------------------------------------------------------
+    // poll_chatgpt — parallel coverage
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn poll_chatgpt_returns_none_when_no_credentials() {
+        let state = Arc::new(AppState::new(Box::new(MemoryStore::new())));
+        let client = reqwest::Client::new();
+
+        let result = poll_chatgpt(&client, "http://unused.invalid", &state).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn poll_chatgpt_returns_none_when_auth_blob_is_corrupt() {
+        let state = state_with_secret(CHATGPT_AUTH_KEY, "{}");
+        let client = reqwest::Client::new();
+
+        let result = poll_chatgpt(&client, "http://unused.invalid", &state).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn poll_chatgpt_returns_snapshot_on_200() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/backend-api/wham/usage"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(CHATGPT_FIXTURE, "application/json"),
+            )
+            .mount(&server)
+            .await;
+
+        let state = state_with_secret(CHATGPT_AUTH_KEY, &chatgpt_auth_json());
+        let client = reqwest::Client::new();
+
+        let snap = poll_chatgpt(&client, &server.uri(), &state)
+            .await
+            .expect("poll should succeed");
+        // Don't assert specific values — just that a snapshot came back.
+        // The exact percentages live in provider-level fixture tests.
+        assert!(snap.five_hour.is_some() || snap.weekly.is_some());
+    }
+
+    #[tokio::test]
+    async fn poll_chatgpt_returns_none_on_403_clearing_cached_snapshot() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+
+        let state = state_with_secret(CHATGPT_AUTH_KEY, &chatgpt_auth_json());
+        state.snapshots.write().await.chatgpt = Some(sample_snapshot(50.0));
+
+        let client = reqwest::Client::new();
+        let result = poll_chatgpt(&client, &server.uri(), &state).await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn poll_chatgpt_keeps_stale_on_5xx() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+
+        let state = state_with_secret(CHATGPT_AUTH_KEY, &chatgpt_auth_json());
+        let stale = sample_snapshot(88.0);
+        state.snapshots.write().await.chatgpt = Some(stale.clone());
+
+        let client = reqwest::Client::new();
+        let result = poll_chatgpt(&client, &server.uri(), &state).await;
+        assert_eq!(result, Some(stale));
     }
 }
