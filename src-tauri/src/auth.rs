@@ -180,18 +180,30 @@ fn extract_claude_cookies(win: &tauri::WebviewWindow) -> Result<Option<String>, 
 
 /// Extracts cookies from the ChatGPT login webview. ChatGPT uses
 /// multiple auth cookies — we consider login complete when we see
-/// a cookie containing auth-related tokens. The heuristic: if there
-/// are more than 2 cookies set for chatgpt.com, login has likely
-/// succeeded (pre-login typically has 0-1 cookies).
+/// a cookie whose name suggests a real auth session. Pre-login
+/// tracking cookies (analytics, consent) are ignored.
 fn extract_chatgpt_cookies(win: &tauri::WebviewWindow) -> Result<Option<String>, String> {
     let url = Url::parse(CHATGPT_BASE_URL).unwrap();
     let cookies = win
         .cookies_for_url(url)
         .map_err(|e| format!("Failed to read cookies: {e}"))?;
 
-    // Heuristic: ChatGPT sets several cookies after login. Before login
-    // there are typically 0-1 tracking cookies. We wait for at least 3.
-    if cookies.len() < 3 {
+    let cookie_names: Vec<&str> = cookies.iter().map(|c| c.name()).collect();
+    info!("chatgpt cookies ({} total): {:?}", cookies.len(), cookie_names);
+
+    // Look for a cookie that indicates a real authenticated session.
+    // ChatGPT sets `__Secure-next-auth.session-token` or similar
+    // auth cookies after login. Fall back to a count heuristic (8+)
+    // if cookie naming conventions change.
+    let has_auth = cookies.iter().any(|c| {
+        let n = c.name();
+        n.contains("session-token")
+            || n.contains("auth")
+            || n.contains("access_token")
+            || n == "_puid"
+    });
+
+    if !has_auth && cookies.len() < 8 {
         return Ok(None);
     }
 
