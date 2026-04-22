@@ -1,6 +1,3 @@
-# AI context management — private working notes, not for public repo
-ai-context-management/
-
 # Secrets / local config
 .env
 .env.local
