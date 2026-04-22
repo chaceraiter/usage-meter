@@ -189,7 +189,11 @@ fn extract_chatgpt_cookies(win: &tauri::WebviewWindow) -> Result<Option<String>,
         .map_err(|e| format!("Failed to read cookies: {e}"))?;
 
     let cookie_names: Vec<&str> = cookies.iter().map(|c| c.name()).collect();
-    info!("chatgpt cookies ({} total): {:?}", cookies.len(), cookie_names);
+    info!(
+        "chatgpt cookies ({} total): {:?}",
+        cookies.len(),
+        cookie_names
+    );
 
     // Look for a cookie that indicates a real authenticated session.
     // ChatGPT sets `__Secure-next-auth.session-token` or similar
