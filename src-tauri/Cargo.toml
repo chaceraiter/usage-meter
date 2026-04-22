@@ -42,6 +42,9 @@ tokio = { version = "1", features = ["time"] }
 log = "0.4"
 # UUID v4 generation for device-id and anonymous-id headers.
 uuid = { version = "1", features = ["v4"] }
+# Simple stderr logger so `log::warn!`/`log::info!` output appears in
+# the `pnpm tauri dev` terminal. RUST_LOG controls verbosity.
+env_logger = "0.11"
 
 # OS credential store. `apple-native` uses the macOS Security framework,
 # `windows-native` uses the Windows Credential Manager, `linux-native` uses
