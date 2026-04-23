@@ -111,8 +111,13 @@ async fn connect_chatgpt(
 ) -> Result<UsageUpdate, String> {
     let client = reqwest::Client::new();
 
+    let access_token = chatgpt::exchange_session_token(&client, CHATGPT_BASE_URL, &cookie)
+        .await
+        .map_err(|e| format!("Failed to get access token: {e}"))?;
+
     let auth = ChatGptAuth {
         cookie,
+        access_token,
         device_id: uuid::Uuid::new_v4().to_string(),
         session_id: uuid::Uuid::new_v4().to_string(),
         client_version: "1.0.0".to_string(),

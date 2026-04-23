@@ -201,6 +201,10 @@ pub struct ChatGptAuth {
     /// Full `Cookie` header value.
     pub cookie: String,
 
+    /// Bearer token obtained from `/api/auth/session`. Required for all
+    /// `/backend-api/*` calls — cookies alone are not sufficient.
+    pub access_token: String,
+
     /// `oai-device-id` header (UUID, generated once per install).
     pub device_id: String,
 
@@ -213,6 +217,46 @@ pub struct ChatGptAuth {
 
     /// `oai-client-build-number` header.
     pub build_number: String,
+}
+
+/// Response from ChatGPT's `/api/auth/session` endpoint.
+#[derive(Debug, Deserialize)]
+struct AuthSessionResponse {
+    #[serde(default, rename = "accessToken")]
+    access_token: Option<String>,
+}
+
+/// Exchanges session cookies for a short-lived access token by calling
+/// `GET /api/auth/session`. The cookies authenticate this call; the
+/// returned JWT authenticates all subsequent `/backend-api/*` calls.
+pub async fn exchange_session_token(
+    client: &Client,
+    base_url: &str,
+    cookie: &str,
+) -> Result<String, FetchError> {
+    let url = format!("{}/api/auth/session", base_url.trim_end_matches('/'));
+
+    let resp = client
+        .get(&url)
+        .header("cookie", cookie)
+        .send()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+
+    super::check_status(resp.status())?;
+
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+
+    let session: AuthSessionResponse =
+        serde_json::from_str(&body).map_err(|e| FetchError::Parse(e.to_string()))?;
+
+    session
+        .access_token
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| FetchError::Parse("no accessToken in session response".to_string()))
 }
 
 /// Fetches the current usage snapshot from ChatGPT's internal API.
@@ -230,6 +274,7 @@ pub async fn fetch_usage(
 
     let resp = client
         .get(&url)
+        .header("authorization", format!("Bearer {}", auth.access_token))
         .header("cookie", &auth.cookie)
         .header("oai-client-version", &auth.client_version)
         .header("oai-client-build-number", &auth.build_number)
@@ -445,6 +490,7 @@ mod tests {
     fn test_auth() -> ChatGptAuth {
         ChatGptAuth {
             cookie: "session=test-session".to_string(),
+            access_token: "test-access-token".to_string(),
             device_id: "00000000-0000-0000-0000-000000000001".to_string(),
             session_id: "00000000-0000-0000-0000-000000000002".to_string(),
             client_version: "test-version".to_string(),

@@ -235,6 +235,7 @@ mod tests {
     fn chatgpt_auth_json() -> String {
         serde_json::to_string(&ChatGptAuth {
             cookie: "session=test-session".to_string(),
+            access_token: "test-access-token".to_string(),
             device_id: "00000000-0000-0000-0000-000000000001".to_string(),
             session_id: "00000000-0000-0000-0000-000000000002".to_string(),
             client_version: "test-version".to_string(),
