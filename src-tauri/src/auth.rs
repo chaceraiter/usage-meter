@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{info, warn};
+use log::{debug, info, warn};
 use tauri::{Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 use crate::providers::chatgpt::{self, ChatGptAuth};
@@ -32,6 +32,26 @@ const LOGIN_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
 /// The cookie name that indicates a successful Claude login.
 const CLAUDE_SESSION_COOKIE: &str = "sessionKey";
 
+/// User-agent string matching real Safari on macOS. Google and OpenAI
+/// block sign-in from embedded/unknown webviews — spoofing a real
+/// browser UA avoids the "this browser or app may not be secure" wall.
+const SAFARI_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) \
+    AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15";
+
+/// Domains the login webview is allowed to navigate to. Any navigation
+/// outside this list is blocked to prevent phishing via redirect chains.
+const ALLOWED_LOGIN_DOMAINS: &[&str] = &[
+    "claude.ai",
+    "chatgpt.com",
+    "openai.com",
+    "auth0.com",
+    "accounts.google.com",
+    "login.live.com",
+    "appleid.apple.com",
+    "github.com",
+    "login.microsoftonline.com",
+];
+
 /// Opens a login window for the given provider. The window loads the
 /// provider's real login page. A background task polls for the session
 /// cookie and completes the connection automatically once login succeeds.
@@ -45,7 +65,9 @@ pub async fn open_auth_window(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let login_url = match provider.as_str() {
-        "claude" => format!("{}/login", CLAUDE_BASE_URL),
+        // Use magic-link (email) login — Google OAuth is blocked in
+        // embedded webviews and cannot be fixed with UA spoofing.
+        "claude" => format!("{}/magic-link", CLAUDE_BASE_URL),
         "chatgpt" => CHATGPT_BASE_URL.to_string(),
         _ => return Err(format!("unknown provider: {provider}")),
     };
@@ -64,9 +86,21 @@ pub async fn open_auth_window(
 
     WebviewWindowBuilder::new(&app, LOGIN_WINDOW_LABEL, WebviewUrl::External(url))
         .title(format!("Sign in — {provider}"))
+        .user_agent(SAFARI_USER_AGENT)
         .inner_size(480.0, 700.0)
         .resizable(true)
         .focused(true)
+        .on_navigation(|url| {
+            let dominated = url.domain().is_some_and(|d| {
+                ALLOWED_LOGIN_DOMAINS
+                    .iter()
+                    .any(|allowed| d == *allowed || d.ends_with(&format!(".{allowed}")))
+            });
+            if !dominated {
+                warn!("blocked navigation to disallowed URL: {url}");
+            }
+            dominated
+        })
         .build()
         .map_err(|e| format!("Failed to open login window: {e}"))?;
 
@@ -189,25 +223,22 @@ fn extract_chatgpt_cookies(win: &tauri::WebviewWindow) -> Result<Option<String>,
         .map_err(|e| format!("Failed to read cookies: {e}"))?;
 
     let cookie_names: Vec<&str> = cookies.iter().map(|c| c.name()).collect();
-    info!(
+    debug!(
         "chatgpt cookies ({} total): {:?}",
         cookies.len(),
         cookie_names
     );
 
-    // Look for a cookie that indicates a real authenticated session.
-    // ChatGPT sets `__Secure-next-auth.session-token` or similar
-    // auth cookies after login. Fall back to a count heuristic (8+)
-    // if cookie naming conventions change.
-    let has_auth = cookies.iter().any(|c| {
+    // Wait for the real session cookie. After login, ChatGPT sets
+    // `__Secure-next-auth.session-token` (all accounts) and `_puid`
+    // (Plus/paid accounts). Pre-login cookies like `csrf-token`,
+    // `callback-url`, and Cloudflare tracking must NOT trigger auth.
+    let has_session = cookies.iter().any(|c| {
         let n = c.name();
-        n.contains("session-token")
-            || n.contains("auth")
-            || n.contains("access_token")
-            || n == "_puid"
+        n == "__Secure-next-auth.session-token" || n == "_puid"
     });
 
-    if !has_auth && cookies.len() < 8 {
+    if !has_session {
         return Ok(None);
     }
 
@@ -300,8 +331,12 @@ async fn connect_chatgpt_from_cookies(
 /// main widget's always-on-top state.
 fn cleanup_login_window(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
-        let _ = win.clear_all_browsing_data();
-        let _ = win.close();
+        if let Err(e) = win.clear_all_browsing_data() {
+            warn!("failed to clear browsing data: {e}");
+        }
+        if let Err(e) = win.close() {
+            warn!("failed to close login window: {e}");
+        }
     }
 
     // Restore always-on-top on the main widget.
