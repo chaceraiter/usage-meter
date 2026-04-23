@@ -46,6 +46,7 @@ const ALLOWED_LOGIN_DOMAINS: &[&str] = &[
     "openai.com",
     "auth0.com",
     "accounts.google.com",
+    "accounts.youtube.com",
     "login.live.com",
     "appleid.apple.com",
     "github.com",
@@ -91,15 +92,19 @@ pub async fn open_auth_window(
         .resizable(true)
         .focused(true)
         .on_navigation(|url| {
-            let dominated = url.domain().is_some_and(|d| {
+            // Allow about:blank — webviews use it for iframes and popups.
+            if url.scheme() == "about" {
+                return true;
+            }
+            let allowed = url.domain().is_some_and(|d| {
                 ALLOWED_LOGIN_DOMAINS
                     .iter()
-                    .any(|allowed| d == *allowed || d.ends_with(&format!(".{allowed}")))
+                    .any(|a| d == *a || d.ends_with(&format!(".{a}")))
             });
-            if !dominated {
+            if !allowed {
                 warn!("blocked navigation to disallowed URL: {url}");
             }
-            dominated
+            allowed
         })
         .build()
         .map_err(|e| format!("Failed to open login window: {e}"))?;
@@ -299,8 +304,16 @@ async fn connect_chatgpt_from_cookies(
 ) -> Result<UsageUpdate, String> {
     let client = reqwest::Client::new();
 
+    // Exchange the session cookie for a short-lived JWT access token.
+    // Cookies authenticate the session endpoint; the JWT authenticates
+    // all subsequent /backend-api/* calls.
+    let access_token = chatgpt::exchange_session_token(&client, CHATGPT_BASE_URL, cookie)
+        .await
+        .map_err(|e| format!("Failed to get access token: {e}"))?;
+
     let auth = ChatGptAuth {
         cookie: cookie.to_string(),
+        access_token,
         device_id: uuid::Uuid::new_v4().to_string(),
         session_id: uuid::Uuid::new_v4().to_string(),
         client_version: "1.0.0".to_string(),
