@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
     <title>usage-meter</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
@@ -12,7 +13,10 @@
     <main class="widget" id="usage-view">
       <div class="header-row" data-tauri-drag-region>
         <h1 class="title" data-tauri-drag-region>usage-meter</h1>
-        <button class="gear-btn" id="open-settings" aria-label="Settings">⚙</button>
+        <div class="header-buttons">
+          <button class="gear-btn" id="open-settings" aria-label="Settings">⚙</button>
+          <button class="gear-btn" id="quit-btn" aria-label="Quit">✕</button>
+        </div>
       </div>
 
       <section class="provider" id="claude-section">
@@ -57,7 +61,7 @@
             <button class="btn btn-disconnect" data-provider="claude">Disconnect</button>
           </div>
           <div class="auth-disconnected" id="claude-disconnected">
-            <button class="btn btn-signin" data-provider="claude">Sign in with Claude</button>
+            <button class="btn btn-browser-connect" data-provider="claude">Connect from Chrome</button>
             <button class="btn btn-fallback-toggle" data-provider="claude">paste cookie</button>
           </div>
           <div class="auth-form" id="claude-form" style="display: none">
@@ -72,7 +76,7 @@
           </div>
         </div>
         <p class="auth-error" id="claude-error"></p>
-        <p class="auth-note">Use email/password — Google Sign-in is blocked in embedded browsers.</p>
+        <p class="auth-hint">Log in to claude.ai in Chrome first.</p>
       </section>
 
       <section class="auth-section">
@@ -83,7 +87,7 @@
             <button class="btn btn-disconnect" data-provider="chatgpt">Disconnect</button>
           </div>
           <div class="auth-disconnected" id="chatgpt-disconnected">
-            <button class="btn btn-signin" data-provider="chatgpt">Sign in with ChatGPT</button>
+            <button class="btn btn-browser-connect" data-provider="chatgpt">Connect from Chrome</button>
             <button class="btn btn-fallback-toggle" data-provider="chatgpt">paste cookie</button>
           </div>
           <div class="auth-form" id="chatgpt-form" style="display: none">
@@ -91,13 +95,14 @@
               type="password"
               class="cookie-input"
               id="chatgpt-cookie"
-              placeholder="Paste cookie…"
+              placeholder="Paste all cookies…"
               autocomplete="off"
             />
             <button class="btn btn-connect" id="chatgpt-connect-btn">Save</button>
           </div>
         </div>
         <p class="auth-error" id="chatgpt-error"></p>
+        <p class="auth-hint">Log in to chatgpt.com in Chrome first.</p>
       </section>
     </div>
   </body>

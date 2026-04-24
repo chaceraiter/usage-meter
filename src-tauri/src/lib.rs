@@ -7,6 +7,7 @@
 //! frontend pull, connect, and disconnect providers on demand.
 
 pub mod auth;
+pub mod browser_cookies;
 pub mod model;
 pub mod providers;
 pub mod scheduler;
@@ -145,6 +146,39 @@ async fn connect_chatgpt(
     Ok(update)
 }
 
+/// Connects a provider by reading session cookies directly from the
+/// user's Chrome browser. The user logs in via their normal browser,
+/// then clicks "Connect" — no copy-paste needed.
+#[tauri::command]
+async fn connect_from_browser(
+    provider: String,
+    state: tauri::State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
+) -> Result<UsageUpdate, String> {
+    // Only read the session cookies we actually need — not analytics/tracking.
+    let (domain, allowed) = match provider.as_str() {
+        "claude" => ("claude.ai", vec!["sessionKey"]),
+        "chatgpt" => ("chatgpt.com", vec![
+            "__Secure-next-auth.session-token",
+            "__Secure-next-auth.callback-url",
+            "__Host-next-auth.csrf-token",
+            "__Secure-next-auth.session-token",
+            "oai-did",
+        ]),
+        _ => return Err(format!("unknown provider: {provider}")),
+    };
+
+    let allowed_refs: Vec<&str> = allowed.iter().map(|s| s.as_ref()).collect();
+    let cookie = browser_cookies::read_chrome_cookies(domain, &allowed_refs)?
+        .ok_or_else(|| format!("No cookies found for {domain} in Chrome. Log in to {domain} in Chrome first, then try again."))?;
+
+    match provider.as_str() {
+        "claude" => connect_claude(cookie, state, app).await,
+        "chatgpt" => connect_chatgpt(cookie, state, app).await,
+        _ => unreachable!(),
+    }
+}
+
 /// Disconnects a provider by clearing stored credentials and cached
 /// snapshot.
 #[tauri::command]
@@ -198,6 +232,7 @@ pub fn run() {
             get_usage,
             connect_claude,
             connect_chatgpt,
+            connect_from_browser,
             disconnect,
             auth::open_auth_window,
             auth::cancel_auth,
