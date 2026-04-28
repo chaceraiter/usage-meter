@@ -216,12 +216,20 @@ fn parse_chunked_name(name: &str) -> Option<(String, u32)> {
 /// Retrieves the Chrome Safe Storage password from the macOS Keychain
 /// and derives the AES-128-CBC key using PBKDF2.
 fn get_chrome_decryption_key() -> Result<[u8; CHROME_KEY_LEN], String> {
-    let entry = keyring::Entry::new("Chrome Safe Storage", "Chrome")
-        .map_err(|e| format!("Keychain entry error: {e}"))?;
+    // Use the `security` CLI directly — the `keyring` crate maps
+    // service/user differently than Chrome's keychain entry expects.
+    let output = std::process::Command::new("security")
+        .args(["find-generic-password", "-s", "Chrome Safe Storage", "-a", "Chrome", "-w"])
+        .output()
+        .map_err(|e| format!("Failed to run security command: {e}"))?;
 
-    let password = entry
-        .get_password()
-        .map_err(|e| format!("Failed to read Chrome Safe Storage from Keychain: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to read Chrome Safe Storage from Keychain: {stderr}"));
+    }
+
+    let password = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    info!("Chrome Safe Storage password length: {}", password.len());
 
     let mut key = [0u8; CHROME_KEY_LEN];
     pbkdf2::pbkdf2_hmac::<sha1::Sha1>(
