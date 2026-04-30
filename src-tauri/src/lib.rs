@@ -158,13 +158,16 @@ async fn connect_from_browser(
     // Only read the session cookies we actually need — not analytics/tracking.
     let (domain, allowed) = match provider.as_str() {
         "claude" => ("claude.ai", vec!["sessionKey"]),
-        "chatgpt" => ("chatgpt.com", vec![
-            "__Secure-next-auth.session-token",
-            "__Secure-next-auth.callback-url",
-            "__Host-next-auth.csrf-token",
-            "__Secure-next-auth.session-token",
-            "oai-did",
-        ]),
+        "chatgpt" => (
+            "chatgpt.com",
+            vec![
+                "__Secure-next-auth.session-token",
+                "__Secure-next-auth.callback-url",
+                "__Host-next-auth.csrf-token",
+                "__Secure-next-auth.session-token",
+                "oai-did",
+            ],
+        ),
         _ => return Err(format!("unknown provider: {provider}")),
     };
 

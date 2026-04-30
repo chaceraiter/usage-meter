@@ -32,10 +32,7 @@ const CHROME_KEY_LEN: usize = 16;
 ///
 /// Handles chunked cookies (e.g. `session-token.0`, `session-token.1`)
 /// by reassembling them in order.
-pub fn read_chrome_cookies(
-    domain: &str,
-    allowed_names: &[&str],
-) -> Result<Option<String>, String> {
+pub fn read_chrome_cookies(domain: &str, allowed_names: &[&str]) -> Result<Option<String>, String> {
     let db_paths = chrome_cookie_db_paths();
     if db_paths.is_empty() {
         return Err("Chrome cookie database not found. Is Chrome installed?".to_string());
@@ -123,8 +120,7 @@ fn read_cookies_from_db(
     domain: &str,
     allowed_names: &[&str],
 ) -> Result<Option<String>, String> {
-    let conn =
-        Connection::open(db_path).map_err(|e| format!("Failed to open cookie DB: {e}"))?;
+    let conn = Connection::open(db_path).map_err(|e| format!("Failed to open cookie DB: {e}"))?;
 
     // Query cookies matching the domain (both exact and dot-prefixed).
     let mut stmt = conn
@@ -153,9 +149,9 @@ fn read_cookies_from_db(
 
         // Filter to allowed cookie names if a whitelist is provided.
         if !allowed_names.is_empty() {
-            let dominated = allowed_names.iter().any(|a| {
-                name == *a || name.starts_with(&format!("{a}."))
-            });
+            let dominated = allowed_names
+                .iter()
+                .any(|a| name == *a || name.starts_with(&format!("{a}.")));
             if !dominated {
                 continue;
             }
@@ -219,13 +215,22 @@ fn get_chrome_decryption_key() -> Result<[u8; CHROME_KEY_LEN], String> {
     // Use the `security` CLI directly — the `keyring` crate maps
     // service/user differently than Chrome's keychain entry expects.
     let output = std::process::Command::new("security")
-        .args(["find-generic-password", "-s", "Chrome Safe Storage", "-a", "Chrome", "-w"])
+        .args([
+            "find-generic-password",
+            "-s",
+            "Chrome Safe Storage",
+            "-a",
+            "Chrome",
+            "-w",
+        ])
         .output()
         .map_err(|e| format!("Failed to run security command: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to read Chrome Safe Storage from Keychain: {stderr}"));
+        return Err(format!(
+            "Failed to read Chrome Safe Storage from Keychain: {stderr}"
+        ));
     }
 
     let password = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -244,10 +249,7 @@ fn get_chrome_decryption_key() -> Result<[u8; CHROME_KEY_LEN], String> {
 
 /// Decrypts a Chrome-encrypted cookie value.
 /// Format: `v10` prefix (3 bytes) + AES-128-CBC ciphertext.
-fn decrypt_chrome_cookie(
-    encrypted: &[u8],
-    key: &[u8; CHROME_KEY_LEN],
-) -> Result<String, String> {
+fn decrypt_chrome_cookie(encrypted: &[u8], key: &[u8; CHROME_KEY_LEN]) -> Result<String, String> {
     if encrypted.is_empty() {
         return Ok(String::new());
     }
@@ -260,8 +262,7 @@ fn decrypt_chrome_cookie(
     let prefix = &encrypted[..3];
     if prefix != b"v10" && prefix != b"v11" {
         // Might be an unencrypted value (older Chrome).
-        return String::from_utf8(encrypted.to_vec())
-            .map_err(|e| format!("not valid UTF-8: {e}"));
+        return String::from_utf8(encrypted.to_vec()).map_err(|e| format!("not valid UTF-8: {e}"));
     }
 
     let ciphertext = &encrypted[3..];
