@@ -45,6 +45,16 @@ uuid = { version = "1", features = ["v4"] }
 # Simple stderr logger so `log::warn!`/`log::info!` output appears in
 # the `pnpm tauri dev` terminal. RUST_LOG controls verbosity.
 env_logger = "0.11"
+# Read Chrome's cookie SQLite database on disk.
+rusqlite = { version = "0.32", features = ["bundled"] }
+# AES-128-CBC decryption for Chrome's encrypted cookie values.
+aes = "0.8"
+cbc = "0.1"
+# PBKDF2 key derivation for Chrome Safe Storage password.
+pbkdf2 = { version = "0.12", features = ["simple"] }
+sha1 = "0.10"
+# Secure temp files with randomized names, 0600 permissions, auto-cleanup.
+tempfile = "3"
 
 # OS credential store. `apple-native` uses the macOS Security framework,
 # `windows-native` uses the Windows Credential Manager, `linux-native` uses

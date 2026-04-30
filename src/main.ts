@@ -1,11 +1,13 @@
 // usage-meter — frontend entry point.
 //
 // Two views: the usage display (default) and a settings panel for
-// connecting/disconnecting provider accounts. Primary auth uses an
-// embedded webview sign-in flow; cookie paste is available as fallback.
+// connecting/disconnecting provider accounts. Primary auth reads
+// cookies directly from the user's Chrome browser; cookie paste
+// is available as fallback.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { formatPercent, formatResetsIn, type UsageWindow } from "./format";
 
 // --- Types mirroring the Rust model ---
@@ -98,36 +100,33 @@ function showView(view: "usage" | "settings"): void {
   if (view === "settings") syncAuthUI(lastUpdate);
 }
 
-// --- Webview sign-in ---
+// --- Browser connect (primary) ---
 
-async function openSignIn(provider: string): Promise<void> {
+async function connectFromBrowser(provider: string): Promise<void> {
   const errorEl = $(`${provider}-error`);
-  if (errorEl) errorEl.textContent = "";
-
   const btn = document.querySelector(
-    `.btn-signin[data-provider="${provider}"]`,
+    `.btn-browser-connect[data-provider="${provider}"]`,
   ) as HTMLButtonElement | null;
+
+  if (errorEl) errorEl.textContent = "";
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "Signing in…";
+    btn.textContent = "Connecting…";
   }
 
   try {
-    await invoke("open_auth_window", { provider });
+    const update = await invoke<UsageUpdate>("connect_from_browser", {
+      provider,
+    });
+    renderUpdate(update);
+    showView("usage");
   } catch (e) {
     if (errorEl) errorEl.textContent = String(e);
-    resetSignInBtn(provider);
-  }
-}
-
-function resetSignInBtn(provider: string): void {
-  const btn = document.querySelector(
-    `.btn-signin[data-provider="${provider}"]`,
-  ) as HTMLButtonElement | null;
-  if (btn) {
-    btn.disabled = false;
-    const label = provider === "claude" ? "Claude" : "ChatGPT";
-    btn.textContent = `Sign in with ${label}`;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Connect from Chrome";
+    }
   }
 }
 
@@ -191,12 +190,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("open-settings")?.addEventListener("click", () => showView("settings"));
   $("close-settings")?.addEventListener("click", () => showView("usage"));
   $("status")?.addEventListener("click", () => showView("settings"));
+  $("quit-btn")?.addEventListener("click", () => getCurrentWindow().destroy());
 
-  // Sign-in buttons (webview auth).
-  document.querySelectorAll(".btn-signin").forEach((btn) => {
+  // Browser connect buttons (primary).
+  document.querySelectorAll(".btn-browser-connect").forEach((btn) => {
     btn.addEventListener("click", () => {
       const provider = (btn as HTMLElement).dataset.provider;
-      if (provider) openSignIn(provider);
+      if (provider) connectFromBrowser(provider);
     });
   });
 
@@ -228,23 +228,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       const provider = (btn as HTMLElement).dataset.provider;
       if (provider) disconnectProvider(provider);
     });
-  });
-
-  // Listen for auth completion from the webview flow.
-  await listen<UsageUpdate>("auth-complete", (event) => {
-    resetSignInBtn("claude");
-    resetSignInBtn("chatgpt");
-    renderUpdate(event.payload);
-    showView("usage");
-  });
-
-  await listen<string>("auth-error", (event) => {
-    resetSignInBtn("claude");
-    resetSignInBtn("chatgpt");
-    const claudeErr = $("claude-error");
-    const chatgptErr = $("chatgpt-error");
-    if (claudeErr) claudeErr.textContent = event.payload;
-    if (chatgptErr) chatgptErr.textContent = event.payload;
   });
 
   // Subscribe to push events from the scheduler.

@@ -52,6 +52,12 @@ body {
   opacity: 0.5;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
 .gear-btn {
   background: none;
   border: none;
@@ -231,11 +237,15 @@ body {
   min-height: 0;
 }
 
-.auth-note {
+.auth-hint {
   margin: 0;
   font-size: 0.55rem;
   opacity: 0.35;
   font-style: italic;
+}
+
+.btn-browser-connect {
+  flex: 1;
 }
 
 @media (prefers-color-scheme: dark) {
